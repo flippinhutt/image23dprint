@@ -204,31 +204,58 @@ class MaskableImageLabel(QLabel):
         painter.end()
         self.setPixmap(display)
 
-    def ai_mask(self):
+    def ai_mask(self, progress_callback=None):
         """Uses rembg (AI) to automatically isolate the foreground object."""
         if not self.image:
             return
         self.save_state()
         print(f"AI Masking {self.title} with ISNet...")
+
+        if progress_callback:
+            progress_callback(0, f"Starting AI mask for {self.title}...")
+
         try:
             from rembg import remove, new_session
             from PIL import Image
+
+            if progress_callback:
+                progress_callback(25, f"Loading AI model...")
+
             if MaskableImageLabel._rembg_session is None:
                 MaskableImageLabel._rembg_session = new_session("isnet-general-use")
+
+            if progress_callback:
+                progress_callback(40, f"Processing {self.title} image...")
+
             qimg = self.image.toImage().convertToFormat(QImage.Format_RGBA8888)
             ptr = qimg.bits()
             arr = np.frombuffer(ptr, dtype=np.uint8).reshape((qimg.height(), qimg.bytesPerLine() // 4, 4))[:, :qimg.width()].copy()
             img = Image.fromarray(arr)
+
+            if progress_callback:
+                progress_callback(60, f"Running AI detection on {self.title}...")
+
             output = remove(img, session=MaskableImageLabel._rembg_session)
+
+            if progress_callback:
+                progress_callback(80, f"Generating mask for {self.title}...")
+
             mask_v = (np.array(output)[:, :, 3] > 127).astype(np.uint8) * 255
             self.mask = QImage(mask_v.data, mask_v.shape[1], mask_v.shape[0], mask_v.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
             bg_pct = np.sum(mask_v==0)/mask_v.size
             print(f"AI Success: {bg_pct:.1%} background removed")
             if bg_pct > 0.99:
                 print("Warning: AI might have missed the object. Try 'Smart Outline'!")
+
+            if progress_callback:
+                progress_callback(100, f"Completed {self.title}")
         except Exception as e:
             print(f"AI Error: {e}")
+            if progress_callback:
+                progress_callback(50, f"AI failed, using fallback for {self.title}...")
             self.auto_mask()
+            if progress_callback:
+                progress_callback(100, f"Fallback completed for {self.title}")
         self.update_display()
 
     def auto_mask(self):
@@ -545,8 +572,38 @@ class Image23DPrintGUI(QMainWindow):
 
     def ai_mask_all(self):
         """Triggers AI background removal for all three image views."""
-        for v in [self.view_front, self.view_side, self.view_top]:
-            v.ai_mask()
+        views = [self.view_front, self.view_side, self.view_top]
+        total_views = sum(1 for v in views if v.image is not None)
+
+        if total_views == 0:
+            self.st.setText("No images loaded to mask")
+            return
+
+        # Show progress UI
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.btn_cancel.setVisible(True)
+
+        current_view_idx = [0]  # Use list to allow modification in nested function
+
+        def update_progress(percent, message):
+            """Update progress bar based on current view and its progress."""
+            # Calculate overall progress across all views
+            view_progress = (current_view_idx[0] * 100 + percent) / total_views
+            self.progress_bar.setValue(int(view_progress))
+            self.st.setText(message)
+            QApplication.processEvents()  # Keep UI responsive
+
+        # Process each view sequentially
+        for v in views:
+            if v.image is not None:
+                v.ai_mask(progress_callback=update_progress)
+                current_view_idx[0] += 1
+
+        # Hide progress UI
+        self.progress_bar.setVisible(False)
+        self.btn_cancel.setVisible(False)
+        self.st.setText("AI masking complete")
 
     def edge_mask_all(self):
         """Triggers local edge detection (Canny) for all three image views."""
