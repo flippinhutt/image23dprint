@@ -2,6 +2,7 @@ import sys
 import os
 import re
 import time
+from typing import Optional, Callable, Dict, Tuple
 import numpy as np
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QFileDialog,
@@ -14,31 +15,42 @@ from ..workers import MeshGenerationWorker, Thin3DWorker
 from ..exporter import MeshExporter, ExportError
 
 
-def show_mesh_process(mesh):
-    """Entry point for parallel 3D viewer process to prevent main UI blocking."""
+def show_mesh_process(mesh) -> None:
+    """
+    Entry point for parallel 3D viewer process to prevent main UI blocking.
+
+    Args:
+        mesh: trimesh.Trimesh object to display
+    """
     mesh.show(resolution=(800, 600))
 
 
 class Image23DPrintGUI(QMainWindow):
-    """Main application window for Image23DPrint."""
-    _ollama_client = None
+    """
+    Main application window for Image23DPrint.
 
-    def __init__(self):
+    Provides the primary user interface for loading images, masking, and
+    generating 3D printable meshes using space carving or thin 3D extrusion.
+    """
+    _ollama_client: Optional[object] = None
+
+    def __init__(self) -> None:
+        """Initialize the main application window and set up the UI."""
         super().__init__()
         self.setWindowTitle("Image23DPrint - Space Carving")
         icon_path = os.path.join(os.path.dirname(__file__), "..", "assets", "icon.png")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
-        self.carver = None
-        self.current_mesh = None
-        self.mesh_worker = None
-        self.thin3d_worker = None
-        self.pending_dims = None
-        self.operation_start_time = None
-        self.exporter = MeshExporter()
+        self.carver: Optional[object] = None
+        self.current_mesh: Optional[object] = None
+        self.mesh_worker: Optional[MeshGenerationWorker] = None
+        self.thin3d_worker: Optional[Thin3DWorker] = None
+        self.pending_dims: Optional[Tuple[float, float, float]] = None
+        self.operation_start_time: Optional[float] = None
+        self.exporter: MeshExporter = MeshExporter()
         self.setup_ui()
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
         """Initializes the UI layout, sliders, buttons, and image labels."""
         cw = QWidget()
         self.setCentralWidget(cw)
@@ -137,8 +149,13 @@ class Image23DPrintGUI(QMainWindow):
         ml.addWidget(self.st)
         self.update_brush_mode()
 
-    def set_mode(self, mode):
-        """Toggles between 'Smart Outline' and 'Scale Tool' interaction modes."""
+    def set_mode(self, mode: str) -> None:
+        """
+        Toggles between 'Smart Outline' and 'Scale Tool' interaction modes.
+
+        Args:
+            mode: Mode to activate ('smart' for Smart Outline, 'scale' for Scale Tool)
+        """
         smart = (mode == 'smart' and not self.view_front.grabcut_mode)
         scale = (mode == 'scale' and not self.view_front.scale_mode)
         for v in [self.view_front, self.view_side, self.view_top]:
@@ -147,8 +164,14 @@ class Image23DPrintGUI(QMainWindow):
         self.btn_smart.setStyleSheet("background-color: lightgreen;" if smart else "")
         self.btn_scale.setStyleSheet("background-color: yellow; color: black;" if scale else "")
 
-    def set_calibration_scale(self, factor, title):
-        """Calculates world dimensions for all axes based on a single measured reference line."""
+    def set_calibration_scale(self, factor: float, title: str) -> None:
+        """
+        Calculates world dimensions for all axes based on a single measured reference line.
+
+        Args:
+            factor: Millimeters per pixel conversion factor
+            title: View name ('Front', 'Side', or 'Top') that was calibrated
+        """
         v = None
         if title == "Front":
             v = self.view_front
@@ -180,14 +203,14 @@ class Image23DPrintGUI(QMainWindow):
             self.edit_w.setText(f"{obj_w_px * factor:.2f}")
             self.edit_d.setText(f"{obj_h_px * factor:.2f}")
 
-    def update_brush_mode(self):
+    def update_brush_mode(self) -> None:
         """Synchronizes the brush interaction based on the radio button state."""
         m = 0 if self.radio_keep.isChecked() else 1
         for v in [self.view_front, self.view_side, self.view_top]:
             v.brush_mode = m
         self.st.setText(f"Active Brush: {'KEEP (No Red)' if m==0 else 'REMOVE (Red)'}")
 
-    def analyze_with_llm(self):
+    def analyze_with_llm(self) -> None:
         """Analyzes loaded images using Ollama LLM vision and displays feedback."""
         if Image23DPrintGUI._ollama_client is None:
             try:
@@ -246,7 +269,7 @@ class Image23DPrintGUI(QMainWindow):
         else:
             self.llm_feedback_label.setText("No images loaded. Load images first.")
 
-    def ai_mask_all(self):
+    def ai_mask_all(self) -> None:
         """Triggers AI background removal for all three image views."""
         views = [self.view_front, self.view_side, self.view_top]
         total_views = sum(1 for v in views if v.image is not None)
@@ -281,32 +304,40 @@ class Image23DPrintGUI(QMainWindow):
         self.btn_cancel.setVisible(False)
         self.st.setText("AI masking complete")
 
-    def edge_mask_all(self):
+    def edge_mask_all(self) -> None:
         """Triggers local edge detection (Canny) for all three image views."""
         for v in [self.view_front, self.view_side, self.view_top]:
             v.edge_mask()
 
-    def refine_masks(self):
+    def refine_masks(self) -> None:
         """Triggers mask refinement (morphology) for all three image views."""
         for v in [self.view_front, self.view_side, self.view_top]:
             v.refine()
 
-    def clear_all_masks(self):
+    def clear_all_masks(self) -> None:
         """Clears masks for all three image views."""
         for v in [self.view_front, self.view_side, self.view_top]:
             v.clear_mask()
 
-    def undo_all(self):
+    def undo_all(self) -> None:
         """Triggers undo for all three image views."""
         for v in [self.view_front, self.view_side, self.view_top]:
             v.undo()
 
-    def get_dim(self, text):
-        """Extracts numerical value from dimension input strings using regular expressions."""
+    def get_dim(self, text: str) -> float:
+        """
+        Extracts numerical value from dimension input strings using regular expressions.
+
+        Args:
+            text: Input string potentially containing a numerical value
+
+        Returns:
+            float: Extracted numerical value, or 1.0 if no number found
+        """
         m = re.search(r"[-+]?\d*\.\d+|\d+", text)
         return float(m.group()) if m else 1.0
 
-    def generate_stl(self):
+    def generate_stl(self) -> None:
         """Orchestrates the 3D carving process and mesh generation using async worker."""
         # Get dimensions
         w, h, d = self.get_dim(self.edit_w.text()), self.get_dim(self.edit_h.text()), self.get_dim(self.edit_d.text())
@@ -388,8 +419,15 @@ class Image23DPrintGUI(QMainWindow):
         # Start worker
         self.mesh_worker.start()
 
-    def on_mesh_progress(self, current, total, message):
-        """Handle progress updates from mesh generation worker."""
+    def on_mesh_progress(self, current: int, total: int, message: str) -> None:
+        """
+        Handle progress updates from mesh generation worker.
+
+        Args:
+            current: Current progress value
+            total: Total progress value
+            message: Status message describing current operation
+        """
         self.progress_bar.setValue(current)
 
         # Calculate and display ETA
@@ -404,8 +442,13 @@ class Image23DPrintGUI(QMainWindow):
 
         self.st.setText(message)
 
-    def on_mesh_finished(self, mesh):
-        """Handle successful mesh generation completion."""
+    def on_mesh_finished(self, mesh: object) -> None:
+        """
+        Handle successful mesh generation completion.
+
+        Args:
+            mesh: Generated trimesh.Trimesh object or None if generation failed
+        """
         # Hide progress UI
         self.progress_bar.setVisible(False)
         self.btn_cancel.setVisible(False)
@@ -439,8 +482,13 @@ class Image23DPrintGUI(QMainWindow):
             self.mesh_worker.deleteLater()
             self.mesh_worker = None
 
-    def on_mesh_error(self, error_message):
-        """Handle mesh generation errors."""
+    def on_mesh_error(self, error_message: str) -> None:
+        """
+        Handle mesh generation errors.
+
+        Args:
+            error_message: Error message string describing what went wrong
+        """
         # Hide progress UI
         self.progress_bar.setVisible(False)
         self.btn_cancel.setVisible(False)
@@ -454,7 +502,7 @@ class Image23DPrintGUI(QMainWindow):
             self.mesh_worker.deleteLater()
             self.mesh_worker = None
 
-    def cancel_operation(self):
+    def cancel_operation(self) -> None:
         """Cancel any running worker operation and return UI to ready state."""
         cancelled = False
 
@@ -490,7 +538,7 @@ class Image23DPrintGUI(QMainWindow):
             # Update status text
             self.st.setText("Operation cancelled")
 
-    def export_stl(self):
+    def export_stl(self) -> None:
         """Prompt for file save and export the generated mesh to STL format."""
         if not self.current_mesh:
             return
@@ -507,7 +555,7 @@ class Image23DPrintGUI(QMainWindow):
             except Exception as e:
                 self.st.setText(f"Unexpected error during export: {e}")
 
-    def generate_2d3d(self):
+    def generate_2d3d(self) -> None:
         """Generates a thin 3D mesh from the front mask using async worker."""
         m = self.view_front.get_mask_array()
         if m is None:
@@ -548,8 +596,15 @@ class Image23DPrintGUI(QMainWindow):
         # Start worker
         self.thin3d_worker.start()
 
-    def on_thin3d_progress(self, current, total, message):
-        """Handle progress updates from thin 3D generation worker."""
+    def on_thin3d_progress(self, current: int, total: int, message: str) -> None:
+        """
+        Handle progress updates from thin 3D generation worker.
+
+        Args:
+            current: Current progress value
+            total: Total progress value
+            message: Status message describing current operation
+        """
         self.progress_bar.setValue(current)
 
         # Calculate and display ETA
@@ -564,8 +619,13 @@ class Image23DPrintGUI(QMainWindow):
 
         self.st.setText(message)
 
-    def on_thin3d_finished(self, mesh):
-        """Handle successful thin 3D generation completion."""
+    def on_thin3d_finished(self, mesh: object) -> None:
+        """
+        Handle successful thin 3D generation completion.
+
+        Args:
+            mesh: Generated trimesh.Trimesh object or None if generation failed
+        """
         # Hide progress UI
         self.progress_bar.setVisible(False)
         self.btn_cancel.setVisible(False)
@@ -591,8 +651,13 @@ class Image23DPrintGUI(QMainWindow):
             self.thin3d_worker.deleteLater()
             self.thin3d_worker = None
 
-    def on_thin3d_error(self, error_message):
-        """Handle thin 3D generation errors."""
+    def on_thin3d_error(self, error_message: str) -> None:
+        """
+        Handle thin 3D generation errors.
+
+        Args:
+            error_message: Error message string describing what went wrong
+        """
         # Hide progress UI
         self.progress_bar.setVisible(False)
         self.btn_cancel.setVisible(False)
@@ -606,7 +671,7 @@ class Image23DPrintGUI(QMainWindow):
             self.thin3d_worker.deleteLater()
             self.thin3d_worker = None
 
-    def preview_3d(self):
+    def preview_3d(self) -> None:
         """Opens a 3D preview window for the generated mesh in a separate process."""
         if self.current_mesh:
             import multiprocessing
