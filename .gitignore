@@ -27,12 +27,19 @@ venv/
 .env
 .export
 
+# macOS
+.DS_Store
+
+# UV / Python
+.venv
+.python-version
+uv.lock
+.pytest_cache
+.ruff_cache
+
 # Project specific
 *.stl
 *.obj
 *.png
 !src/image23dprint/assets/icon.png
 !docs/images/*.png
-
-# macOS
-.DS_Store

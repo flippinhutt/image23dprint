@@ -1,7 +1,7 @@
 [project]
 name = "image23dprint"
 version = "0.1.0"
-description = "Add your description here"
+description = "High-accuracy 3D object reconstruction from 2D images using space-carving and AI background removal."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

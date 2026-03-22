@@ -1,25 +1,27 @@
-# image23dprint
+# Image23DPrint
 
-Convert images into 3D printable meshes (STL/OBJ).
+Convert images into 3D printable meshes (STL/OBJ) using Volumetric Space Carving.
 
 ## Project Overview
-This tool aims to simplify the process of creating 3D printable objects from 2D images, potentially using depth estimation or edge detection to generate heightmaps and meshes.
+This tool focuses on high-accuracy reconstruction from 2D silhouettes. It uses specialized masking (AI + GrabCut) and volumetric carving to generate manifold 3D meshes ready for printing.
 
 ## Tech Stack
-- **Language**: Python 3.12+
+- **Language**: Python 3.13+
 - **Package Manager**: `uv`
-- **Libraries**: (Planned) `opencv-python`, `trimesh`, `numpy`, `scipy`
+- **Gui Framework**: `PySide6`
+- **3D Engine**: `trimesh`, `skimage`, `fast-simplification`
+- **AI Vision**: `rembg` (ISNet)
 
 ## Repository Layout
-- `src/`: Core logic for image processing and mesh generation.
-- `docs/`: Architectural diagrams, ADRs, and runbooks.
-- `tools/`: Utility scripts and localized prompts.
-- `.claude/`: Claude-specific settings and assistant skills.
+- `src/image23dprint/`: Core logic and GUI.
+- `src/image23dprint/assets/`: UI resources (Icons, images).
+- `docs/`: Architecture, API, and Governance documentation.
+- `tests/`: Pytest suite for carving and mesh logic.
 
 ## Coding Conventions
-- Follow PEP 8 styles.
+- Follow PEP 8 styles (enforced by `ruff`).
 - Use `pytest` for all functional tests.
-- Prefer explicit type hinging.
+- Maintain comprehensive docstrings for all public classes and methods.
 
 ## Claude Behavior
 - Keep diffs small and focused.

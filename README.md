@@ -20,7 +20,7 @@ Designed for hobbyists, engineers, and creators, it allows you to generate a 3D 
 ## 🚀 Quick Start
 
 ### 1. Installation
-Ensure you have Python 3.9+ and `uv` (recommended) or `pip` installed.
+Ensure you have Python 3.13+ and `uv` (recommended) or `pip` installed.
 
 ```bash
 # Clone the repository
@@ -63,11 +63,19 @@ graph TD
 
 ## 🛠️ Technical Details
 
-- **Language**: Python 3.12
+- **Language**: Python 3.13
 - **UI Framework**: PySide6 (Qt)
 - **Computer Vision**: OpenCV, rembg (ONNX)
 - **3D Geometry**: trimesh, scikit-image (Marching Cubes)
 - **Package Manager**: uv
+
+---
+
+## 📚 Documentation
+- [Architecture](docs/architecture.md): Technical deep-dive into space carving.
+- [API Reference](docs/API.md): Class and method documentation.
+- [Governance](docs/governance.md): Contribution and review guidelines.
+- [GitHub Actions](docs/github_actions.md): CI/CD pipeline details.
 
 ---
 

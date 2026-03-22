@@ -36,28 +36,37 @@ class SpaceCarver:
         """
         # 1. Find bounding box of the non-zero area to ignore empty photo space
         coords = np.argwhere(mask_img)
-        if coords.size == 0: return
+        if coords.size == 0:
+            return
         y0, x0 = coords.min(axis=0)
         y1, x1 = coords.max(axis=0) + 1
-        crop = mask_img[y0:y1, x0:x1].astype(np.uint8) * 255
+        idx = mask_img[y0:y1, x0:x1]
+        # Ensure we have a 0-255 range for cv2.resize
+        crop = (idx > 0).astype(np.uint8) * 255
 
         # 2. Map projection plane to (Z, X, Y) voxel indices
-        if axis == 'front': ts = (self.shape[2], self.shape[0]) # (Z, X)
-        elif axis == 'side': ts = (self.shape[2], self.shape[1]) # (Z, Y)
-        else: ts = (self.shape[1], self.shape[0]) # (Y, X)
+        if axis == 'front':
+            ts = (self.shape[2], self.shape[0])  # (Z, X)
+        elif axis == 'side':
+            ts = (self.shape[2], self.shape[1])  # (Z, Y)
+        else:
+            ts = (self.shape[1], self.shape[0])  # (Y, X)
 
         # 3. Resize the core object silhouette to exactly fit the voxel plane
         resized = cv2.resize(crop, (ts[1], ts[0]), interpolation=cv2.INTER_NEAREST) > 127
         
         if axis == 'front':
             m2d = resized[::-1, :].T # Flip Z for vertical alignment
-            for y in range(self.shape[1]): self.voxels[:, y, :] &= m2d
+            for y in range(self.shape[1]):
+                self.voxels[:, y, :] &= m2d
         elif axis == 'side':
             m2d = resized[::-1, :].T # Flip Z for vertical alignment
-            for x in range(self.shape[0]): self.voxels[x, :, :] &= m2d
+            for x in range(self.shape[0]):
+                self.voxels[x, :, :] &= m2d
         elif axis == 'top':
             m2d = resized.T # (X, Y)
-            for z in range(self.shape[2]): self.voxels[:, :, z] &= m2d
+            for z in range(self.shape[2]):
+                self.voxels[:, :, z] &= m2d
 
     def generate_mesh(self, smooth=True, decimate=True, align_to_bed=True):
         """
@@ -71,7 +80,8 @@ class SpaceCarver:
         Returns:
             trimesh.Trimesh: The generated 3D mesh object.
         """
-        if not np.any(self.voxels): return None
+        if not np.any(self.voxels):
+            return None
         
         print(f"Generating mesh at resolution {self.shape}...")
         # Pad to ensure a watertight closed mesh at the boundaries
