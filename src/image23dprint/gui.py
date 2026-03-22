@@ -750,8 +750,9 @@ class Image23DPrintGUI(QMainWindow):
             self.st.setText("No mesh generated.")
 
         # Clean up worker
-        self.mesh_worker.deleteLater()
-        self.mesh_worker = None
+        if hasattr(self, 'mesh_worker') and self.mesh_worker:
+            self.mesh_worker.deleteLater()
+            self.mesh_worker = None
 
     def on_mesh_error(self, error_message):
         """Handle mesh generation errors."""
@@ -879,7 +880,9 @@ class Image23DPrintGUI(QMainWindow):
             self.st.setText("Failed to generate Thin 3D.")
 
         # Clean up worker
-        self.thin3d_worker.deleteLater()
+        if hasattr(self, 'thin3d_worker') and self.thin3d_worker:
+            self.thin3d_worker.deleteLater()
+            self.thin3d_worker = None
 
     def on_thin3d_error(self, error_message):
         """Handle thin 3D generation errors."""
@@ -891,7 +894,9 @@ class Image23DPrintGUI(QMainWindow):
         self.st.setText(f"Error: {error_message}")
 
         # Clean up worker
-        self.thin3d_worker.deleteLater()
+        if hasattr(self, 'thin3d_worker') and self.thin3d_worker:
+            self.thin3d_worker.deleteLater()
+            self.thin3d_worker = None
 
     def preview_3d(self):
         """Opens a 3D preview window for the generated mesh in a separate process."""
