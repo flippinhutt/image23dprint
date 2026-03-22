@@ -349,6 +349,15 @@ class Image23DPrintGUI(QMainWindow):
         self.radio_keep.toggled.connect(self.update_brush_mode)
         gl.addWidget(self.radio_remove)
         gl.addWidget(self.radio_keep)
+
+        ag = QGroupBox("AI Analysis")
+        al = QVBoxLayout(ag)
+        ml.addWidget(ag)
+        self.llm_feedback_label = QLabel("No analysis yet.")
+        self.llm_feedback_label.setWordWrap(True)
+        self.llm_feedback_label.setStyleSheet("padding: 10px; background-color: #f5f5f5;")
+        al.addWidget(self.llm_feedback_label)
+
         self.st = QLabel("Load Images -> AI Mask -> Generate")
         ml.addWidget(self.st)
         self.update_brush_mode()
