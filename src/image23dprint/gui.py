@@ -1,13 +1,16 @@
 import sys
 import os
 import re
+import time
 import numpy as np
 import cv2
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QFileDialog,
-                             QSlider, QGroupBox, QInputDialog, QLineEdit, QRadioButton)
+                             QSlider, QGroupBox, QInputDialog, QLineEdit, QRadioButton,
+                             QProgressBar)
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
+from .workers import MeshGenerationWorker, Thin3DWorker
 
 class MaskableImageLabel(QLabel):
     """
@@ -203,31 +206,58 @@ class MaskableImageLabel(QLabel):
         painter.end()
         self.setPixmap(display)
 
-    def ai_mask(self):
+    def ai_mask(self, progress_callback=None):
         """Uses rembg (AI) to automatically isolate the foreground object."""
         if not self.image:
             return
         self.save_state()
         print(f"AI Masking {self.title} with ISNet...")
+
+        if progress_callback:
+            progress_callback(0, f"Preparing {self.title} for background removal...")
+
         try:
             from rembg import remove, new_session
             from PIL import Image
+
+            if progress_callback:
+                progress_callback(25, f"Loading AI background removal model...")
+
             if MaskableImageLabel._rembg_session is None:
                 MaskableImageLabel._rembg_session = new_session("isnet-general-use")
+
+            if progress_callback:
+                progress_callback(40, f"Analyzing {self.title} image...")
+
             qimg = self.image.toImage().convertToFormat(QImage.Format_RGBA8888)
             ptr = qimg.bits()
             arr = np.frombuffer(ptr, dtype=np.uint8).reshape((qimg.height(), qimg.bytesPerLine() // 4, 4))[:, :qimg.width()].copy()
             img = Image.fromarray(arr)
+
+            if progress_callback:
+                progress_callback(60, f"Removing background from {self.title}...")
+
             output = remove(img, session=MaskableImageLabel._rembg_session)
+
+            if progress_callback:
+                progress_callback(80, f"Creating mask for {self.title}...")
+
             mask_v = (np.array(output)[:, :, 3] > 127).astype(np.uint8) * 255
             self.mask = QImage(mask_v.data, mask_v.shape[1], mask_v.shape[0], mask_v.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
             bg_pct = np.sum(mask_v==0)/mask_v.size
             print(f"AI Success: {bg_pct:.1%} background removed")
             if bg_pct > 0.99:
                 print("Warning: AI might have missed the object. Try 'Smart Outline'!")
+
+            if progress_callback:
+                progress_callback(100, f"Background removal complete for {self.title}")
         except Exception as e:
             print(f"AI Error: {e}")
+            if progress_callback:
+                progress_callback(50, f"AI failed, using fallback for {self.title}...")
             self.auto_mask()
+            if progress_callback:
+                progress_callback(100, f"Fallback completed for {self.title}")
         self.update_display()
 
     def auto_mask(self):
@@ -333,6 +363,10 @@ class Image23DPrintGUI(QMainWindow):
             self.setWindowIcon(QIcon(icon_path))
         self.carver = None
         self.current_mesh = None
+        self.mesh_worker = None
+        self.thin3d_worker = None
+        self.pending_dims = None
+        self.operation_start_time = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -414,16 +448,25 @@ class Image23DPrintGUI(QMainWindow):
         self.llm_feedback_label.setStyleSheet("padding: 10px; background-color: #f5f5f5;")
         al.addWidget(self.llm_feedback_label)
 
+        # Progress UI components
+        pg = QGroupBox("Processing")
+        pgl = QVBoxLayout(pg)
+        ml.addWidget(pg)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        pgl.addWidget(self.progress_bar)
+        pbl = QHBoxLayout()
+        pgl.addLayout(pbl)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setVisible(False)
+        self.btn_cancel.clicked.connect(self.cancel_operation)
+        pbl.addWidget(self.btn_cancel)
+
         self.st = QLabel("Load Images -> AI Mask -> Generate")
         ml.addWidget(self.st)
         self.update_brush_mode()
-
-        if self.current_mesh:
-            import multiprocessing
-            p = multiprocessing.Process(target=show_mesh_process, args=(self.current_mesh,))
-            p.start()
-        else:
-            self.st.setText("No mesh to preview.")
 
     def set_mode(self, mode):
         """Toggles between 'Smart Outline' and 'Scale Tool' interaction modes."""
@@ -536,8 +579,38 @@ class Image23DPrintGUI(QMainWindow):
 
     def ai_mask_all(self):
         """Triggers AI background removal for all three image views."""
-        for v in [self.view_front, self.view_side, self.view_top]:
-            v.ai_mask()
+        views = [self.view_front, self.view_side, self.view_top]
+        total_views = sum(1 for v in views if v.image is not None)
+
+        if total_views == 0:
+            self.st.setText("No images loaded to mask")
+            return
+
+        # Show progress UI
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.btn_cancel.setVisible(True)
+
+        current_view_idx = [0]  # Use list to allow modification in nested function
+
+        def update_progress(percent, message):
+            """Update progress bar based on current view and its progress."""
+            # Calculate overall progress across all views
+            view_progress = (current_view_idx[0] * 100 + percent) / total_views
+            self.progress_bar.setValue(int(view_progress))
+            self.st.setText(message)
+            QApplication.processEvents()  # Keep UI responsive
+
+        # Process each view sequentially
+        for v in views:
+            if v.image is not None:
+                v.ai_mask(progress_callback=update_progress)
+                current_view_idx[0] += 1
+
+        # Hide progress UI
+        self.progress_bar.setVisible(False)
+        self.btn_cancel.setVisible(False)
+        self.st.setText("AI masking complete")
 
     def edge_mask_all(self):
         """Triggers local edge detection (Canny) for all three image views."""
@@ -565,28 +638,189 @@ class Image23DPrintGUI(QMainWindow):
         return float(m.group()) if m else 1.0
 
     def generate_stl(self):
-        """Orchestrates the 3D carving process and mesh generation."""
-        from .mesh import SpaceCarver
+        """Orchestrates the 3D carving process and mesh generation using async worker."""
+        # Get dimensions
         w, h, d = self.get_dim(self.edit_w.text()), self.get_dim(self.edit_h.text()), self.get_dim(self.edit_d.text())
         print(f"Generating for dims: {w}x{h}x{d}")
-        self.carver = SpaceCarver(res=self.res_slider.value(), dims=(w, d, h))
-        masks = {'front': self.view_front.get_mask_array(), 'side': self.view_side.get_mask_array(), 'top': self.view_top.get_mask_array()}
-        for a, m in masks.items():
-            if m is not None:
-                self.carver.apply_mask(m, axis=a)
-        self.current_mesh = self.carver.generate_mesh(smooth=True)
+
+        # Prepare masks in the format MeshGenerationWorker expects
+        # Dictionary mapping names to (mask_qimage, axis) tuples
+        masks = {}
+
+        # Front view
+        front_mask_arr = self.view_front.get_mask_array()
+        if front_mask_arr is not None:
+            # Convert numpy array back to QImage
+            front_mask_uint8 = (front_mask_arr > 0).astype(np.uint8) * 255
+            front_qimage = QImage(
+                front_mask_uint8.data,
+                front_mask_uint8.shape[1],
+                front_mask_uint8.shape[0],
+                front_mask_uint8.strides[0],
+                QImage.Format_Grayscale8
+            ).copy()
+            masks['front'] = (front_qimage, 'front')
+
+        # Side view
+        side_mask_arr = self.view_side.get_mask_array()
+        if side_mask_arr is not None:
+            side_mask_uint8 = (side_mask_arr > 0).astype(np.uint8) * 255
+            side_qimage = QImage(
+                side_mask_uint8.data,
+                side_mask_uint8.shape[1],
+                side_mask_uint8.shape[0],
+                side_mask_uint8.strides[0],
+                QImage.Format_Grayscale8
+            ).copy()
+            masks['side'] = (side_qimage, 'side')
+
+        # Top view
+        top_mask_arr = self.view_top.get_mask_array()
+        if top_mask_arr is not None:
+            top_mask_uint8 = (top_mask_arr > 0).astype(np.uint8) * 255
+            top_qimage = QImage(
+                top_mask_uint8.data,
+                top_mask_uint8.shape[1],
+                top_mask_uint8.shape[0],
+                top_mask_uint8.strides[0],
+                QImage.Format_Grayscale8
+            ).copy()
+            masks['top'] = (top_qimage, 'top')
+
+        if not masks:
+            self.st.setText("Error: No masks available. Please load and mask images first.")
+            return
+
+        # Show progress UI
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.btn_cancel.setVisible(True)
+        self.st.setText("Starting mesh generation...")
+
+        # Store dimensions for scaling after generation
+        self.pending_dims = (w, h, d)
+
+        # Create worker
+        self.mesh_worker = MeshGenerationWorker(
+            masks=masks,
+            dims=(w, d, h),  # (width, depth, height)
+            voxel_res=self.res_slider.value(),
+            smooth=True,
+            decimate=True
+        )
+
+        # Connect signals
+        self.mesh_worker.progress.connect(self.on_mesh_progress)
+        self.mesh_worker.finished.connect(self.on_mesh_finished)
+        self.mesh_worker.error.connect(self.on_mesh_error)
+
+        # Track start time for ETA calculation
+        self.operation_start_time = time.time()
+
+        # Start worker
+        self.mesh_worker.start()
+
+    def on_mesh_progress(self, current, total, message):
+        """Handle progress updates from mesh generation worker."""
+        self.progress_bar.setValue(current)
+
+        # Calculate and display ETA
+        if self.operation_start_time is not None and current > 0 and total > 0:
+            elapsed = time.time() - self.operation_start_time
+            progress_percent = current / total
+            if progress_percent > 0.01:  # Only show ETA after 1% progress
+                estimated_total_time = elapsed / progress_percent
+                remaining = estimated_total_time - elapsed
+                if remaining > 0:
+                    message = f"{message} (~{int(remaining)}s remaining)"
+
+        self.st.setText(message)
+
+    def on_mesh_finished(self, mesh):
+        """Handle successful mesh generation completion."""
+        # Hide progress UI
+        self.progress_bar.setVisible(False)
+        self.btn_cancel.setVisible(False)
+        self.operation_start_time = None
+
+        # Store the mesh
+        self.current_mesh = mesh
+
         if self.current_mesh:
+            # Apply scaling to match real-world dimensions
+            w, h, d = self.pending_dims
             ex = self.current_mesh.extents
             if ex[0] > 0 and ex[1] > 0 and ex[2] > 0:
                 sx, sy, sz = w / ex[0], d / ex[1], h / ex[2]
                 self.current_mesh.apply_scale([sx, sy, sz])
+
+            # Update UI
             self.btn_pre.setVisible(True)
             self.btn_gen.setText("Export STL")
-            self.btn_gen.clicked.disconnect()
+            try:
+                self.btn_gen.clicked.disconnect()
+            except (RuntimeError, TypeError):
+                pass
             self.btn_gen.clicked.connect(self.export_stl)
             self.st.setText("Generated! Scale applies to export.")
         else:
-            self.st.setText("No mesh.")
+            self.st.setText("No mesh generated.")
+
+        # Clean up worker
+        if hasattr(self, 'mesh_worker') and self.mesh_worker:
+            self.mesh_worker.deleteLater()
+            self.mesh_worker = None
+
+    def on_mesh_error(self, error_message):
+        """Handle mesh generation errors."""
+        # Hide progress UI
+        self.progress_bar.setVisible(False)
+        self.btn_cancel.setVisible(False)
+        self.operation_start_time = None
+
+        # Show error
+        self.st.setText(f"Error: {error_message}")
+
+        # Clean up worker
+        if hasattr(self, 'mesh_worker') and self.mesh_worker:
+            self.mesh_worker.deleteLater()
+            self.mesh_worker = None
+
+    def cancel_operation(self):
+        """Cancel any running worker operation and return UI to ready state."""
+        cancelled = False
+
+        # Try to stop mesh worker
+        if hasattr(self, 'mesh_worker') and self.mesh_worker and self.mesh_worker.is_running():
+            self.mesh_worker.stop()
+            self.mesh_worker.deleteLater()
+            self.mesh_worker = None
+            cancelled = True
+
+        # Try to stop thin 3D worker
+        if hasattr(self, 'thin3d_worker') and self.thin3d_worker and self.thin3d_worker.is_running():
+            self.thin3d_worker.stop()
+            self.thin3d_worker.deleteLater()
+            self.thin3d_worker = None
+            cancelled = True
+
+        # Return UI to ready state if something was cancelled
+        if cancelled:
+            # Hide progress UI
+            self.progress_bar.setVisible(False)
+            self.btn_cancel.setVisible(False)
+            self.operation_start_time = None
+
+            # Reset generate button to initial state
+            self.btn_gen.setText("Generate STL")
+            try:
+                self.btn_gen.clicked.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            self.btn_gen.clicked.connect(self.generate_stl)
+
+            # Update status text
+            self.st.setText("Operation cancelled")
 
     def export_stl(self):
         """Prompt for file save and export the generated mesh to STL format."""
@@ -601,13 +835,12 @@ class Image23DPrintGUI(QMainWindow):
             self.btn_gen.clicked.connect(self.generate_stl)
 
     def generate_2d3d(self):
-        """Generates a thin 3D mesh from the front mask."""
-        from .mesh import SpaceCarver
+        """Generates a thin 3D mesh from the front mask using async worker."""
         m = self.view_front.get_mask_array()
         if m is None:
             self.st.setText("Error: Load 'Front' image and mask it first!")
             return
-        
+
         # Determine scale factor (mm per pixel)
         # Use the width dimension if set, else default to 1mm/px
         w_mm = self.get_dim(self.edit_w.text())
@@ -617,10 +850,57 @@ class Image23DPrintGUI(QMainWindow):
             scale = w_mm / px_w if px_w > 0 else 1.0
         else:
             scale = 1.0
-            
-        carver = SpaceCarver(res=64) # Dummy carver to access the method
-        self.current_mesh = carver.generate_thin_3d(m, thickness_mm=2.5, scale_factor=scale)
-        
+
+        # Show progress UI
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.btn_cancel.setVisible(True)
+        self.st.setText("Starting thin 3D generation...")
+
+        # Create worker
+        self.thin3d_worker = Thin3DWorker(
+            mask_array=m,
+            thickness_mm=2.5,
+            scale_factor=scale
+        )
+
+        # Connect signals
+        self.thin3d_worker.progress.connect(self.on_thin3d_progress)
+        self.thin3d_worker.finished.connect(self.on_thin3d_finished)
+        self.thin3d_worker.error.connect(self.on_thin3d_error)
+
+        # Track start time for ETA calculation
+        self.operation_start_time = time.time()
+
+        # Start worker
+        self.thin3d_worker.start()
+
+    def on_thin3d_progress(self, current, total, message):
+        """Handle progress updates from thin 3D generation worker."""
+        self.progress_bar.setValue(current)
+
+        # Calculate and display ETA
+        if self.operation_start_time is not None and current > 0 and total > 0:
+            elapsed = time.time() - self.operation_start_time
+            progress_percent = current / total
+            if progress_percent > 0.01:  # Only show ETA after 1% progress
+                estimated_total_time = elapsed / progress_percent
+                remaining = estimated_total_time - elapsed
+                if remaining > 0:
+                    message = f"{message} (~{int(remaining)}s remaining)"
+
+        self.st.setText(message)
+
+    def on_thin3d_finished(self, mesh):
+        """Handle successful thin 3D generation completion."""
+        # Hide progress UI
+        self.progress_bar.setVisible(False)
+        self.btn_cancel.setVisible(False)
+        self.operation_start_time = None
+
+        # Store the mesh
+        self.current_mesh = mesh
+
         if self.current_mesh:
             self.btn_pre.setVisible(True)
             self.btn_gen.setText("Export STL")
@@ -632,6 +912,35 @@ class Image23DPrintGUI(QMainWindow):
             self.st.setText("Thin 3D Generated!")
         else:
             self.st.setText("Failed to generate Thin 3D.")
+
+        # Clean up worker
+        if hasattr(self, 'thin3d_worker') and self.thin3d_worker:
+            self.thin3d_worker.deleteLater()
+            self.thin3d_worker = None
+
+    def on_thin3d_error(self, error_message):
+        """Handle thin 3D generation errors."""
+        # Hide progress UI
+        self.progress_bar.setVisible(False)
+        self.btn_cancel.setVisible(False)
+        self.operation_start_time = None
+
+        # Show error message
+        self.st.setText(f"Error: {error_message}")
+
+        # Clean up worker
+        if hasattr(self, 'thin3d_worker') and self.thin3d_worker:
+            self.thin3d_worker.deleteLater()
+            self.thin3d_worker = None
+
+    def preview_3d(self):
+        """Opens a 3D preview window for the generated mesh in a separate process."""
+        if self.current_mesh:
+            import multiprocessing
+            p = multiprocessing.Process(target=show_mesh_process, args=(self.current_mesh,))
+            p.start()
+        else:
+            self.st.setText("No mesh to preview.")
 
 def main():
     """Application entry point."""
