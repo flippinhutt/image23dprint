@@ -3,10 +3,10 @@ import os
 import re
 import numpy as np
 import cv2
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QPushButton, QLabel, QFileDialog, 
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QLabel, QFileDialog,
                              QSlider, QGroupBox, QInputDialog, QLineEdit, QRadioButton)
-from PySide6.QtCore import Qt, QPoint, QRect
+from PySide6.QtCore import Qt, QPoint, QRect, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
 
 class MaskableImageLabel(QLabel):
@@ -123,6 +123,16 @@ class MaskableImageLabel(QLabel):
             self.mask = QImage(self.image.size(), QImage.Format_Mono)
             self.mask.fill(Qt.color1)
             self.update_display()
+
+            # Trigger automatic AI analysis (non-blocking, optional)
+            try:
+                parent = self.window()
+                if hasattr(parent, 'analyze_with_llm'):
+                    # Schedule analysis to run after UI updates (non-blocking)
+                    QTimer.singleShot(100, parent.analyze_with_llm)
+            except Exception as e:
+                # Silently ignore errors - analysis is optional
+                pass
 
     def update_display(self):
         """Renders the image with the semi-transparent red mask overlay and UI guides."""
