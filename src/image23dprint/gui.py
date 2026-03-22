@@ -5,7 +5,8 @@ import numpy as np
 import cv2
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QFileDialog,
-                             QSlider, QGroupBox, QInputDialog, QLineEdit, QRadioButton)
+                             QSlider, QGroupBox, QInputDialog, QLineEdit, QRadioButton,
+                             QProgressBar)
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
 
@@ -414,16 +415,24 @@ class Image23DPrintGUI(QMainWindow):
         self.llm_feedback_label.setStyleSheet("padding: 10px; background-color: #f5f5f5;")
         al.addWidget(self.llm_feedback_label)
 
+        # Progress UI components
+        pg = QGroupBox("Processing")
+        pgl = QVBoxLayout(pg)
+        ml.addWidget(pg)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        pgl.addWidget(self.progress_bar)
+        pbl = QHBoxLayout()
+        pgl.addLayout(pbl)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setVisible(False)
+        pbl.addWidget(self.btn_cancel)
+
         self.st = QLabel("Load Images -> AI Mask -> Generate")
         ml.addWidget(self.st)
         self.update_brush_mode()
-
-        if self.current_mesh:
-            import multiprocessing
-            p = multiprocessing.Process(target=show_mesh_process, args=(self.current_mesh,))
-            p.start()
-        else:
-            self.st.setText("No mesh to preview.")
 
     def set_mode(self, mode):
         """Toggles between 'Smart Outline' and 'Scale Tool' interaction modes."""
@@ -607,7 +616,7 @@ class Image23DPrintGUI(QMainWindow):
         if m is None:
             self.st.setText("Error: Load 'Front' image and mask it first!")
             return
-        
+
         # Determine scale factor (mm per pixel)
         # Use the width dimension if set, else default to 1mm/px
         w_mm = self.get_dim(self.edit_w.text())
@@ -617,10 +626,10 @@ class Image23DPrintGUI(QMainWindow):
             scale = w_mm / px_w if px_w > 0 else 1.0
         else:
             scale = 1.0
-            
+
         carver = SpaceCarver(res=64) # Dummy carver to access the method
         self.current_mesh = carver.generate_thin_3d(m, thickness_mm=2.5, scale_factor=scale)
-        
+
         if self.current_mesh:
             self.btn_pre.setVisible(True)
             self.btn_gen.setText("Export STL")
@@ -632,6 +641,15 @@ class Image23DPrintGUI(QMainWindow):
             self.st.setText("Thin 3D Generated!")
         else:
             self.st.setText("Failed to generate Thin 3D.")
+
+    def preview_3d(self):
+        """Opens a 3D preview window for the generated mesh in a separate process."""
+        if self.current_mesh:
+            import multiprocessing
+            p = multiprocessing.Process(target=show_mesh_process, args=(self.current_mesh,))
+            p.start()
+        else:
+            self.st.setText("No mesh to preview.")
 
 def main():
     """Application entry point."""
