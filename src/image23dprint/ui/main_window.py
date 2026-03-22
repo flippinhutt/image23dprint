@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QIcon
 from ..widgets.maskable_image_label import MaskableImageLabel
 from ..workers import MeshGenerationWorker, Thin3DWorker
+from ..exporter import MeshExporter, ExportError
 
 
 def show_mesh_process(mesh):
@@ -34,6 +35,7 @@ class Image23DPrintGUI(QMainWindow):
         self.thin3d_worker = None
         self.pending_dims = None
         self.operation_start_time = None
+        self.exporter = MeshExporter()
         self.setup_ui()
 
     def setup_ui(self):
@@ -492,13 +494,18 @@ class Image23DPrintGUI(QMainWindow):
         """Prompt for file save and export the generated mesh to STL format."""
         if not self.current_mesh:
             return
-        p, _ = QFileDialog.getSaveFileName(self, "Save STL", "", "*.stl")
+        p, _ = QFileDialog.getSaveFileName(self, "Save STL", "", "STL Files (*.stl);;OBJ Files (*.obj)")
         if p:
-            self.current_mesh.export(p)
-            self.st.setText(f"Saved to {p}")
-            self.btn_gen.setText("Generate STL")
-            self.btn_gen.clicked.disconnect()
-            self.btn_gen.clicked.connect(self.generate_stl)
+            try:
+                self.exporter.export(self.current_mesh, p, validate=True)
+                self.st.setText(f"Saved to {p}")
+                self.btn_gen.setText("Generate STL")
+                self.btn_gen.clicked.disconnect()
+                self.btn_gen.clicked.connect(self.generate_stl)
+            except ExportError as e:
+                self.st.setText(f"Export failed: {e}")
+            except Exception as e:
+                self.st.setText(f"Unexpected error during export: {e}")
 
     def generate_2d3d(self):
         """Generates a thin 3D mesh from the front mask using async worker."""
