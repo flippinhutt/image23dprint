@@ -295,3 +295,84 @@ class MeshGenerationWorker(BaseWorker):
             self.error.emit(f"Mesh generation failed: {str(e)}")
         finally:
             self._is_running = False
+
+
+class Thin3DWorker(BaseWorker):
+    """
+    Worker for thin 3D mesh generation from a single 2D mask.
+
+    Generates a constant-thickness 3D mesh by extruding a 2D binary mask.
+    Runs in a background thread to keep the GUI responsive during mesh generation.
+
+    Signals:
+        progress: Emitted with (current, total, message) during processing
+        finished: Emitted with resulting trimesh.Trimesh object on success
+        error: Emitted with error message string on failure
+    """
+
+    def __init__(self, mask_array, thickness_mm=2.5, scale_factor=1.0, parent=None):
+        """
+        Initialize the thin 3D generation worker.
+
+        Args:
+            mask_array: Binary mask numpy array (True/False or 0/255)
+            thickness_mm: The target extrusion thickness in real-world units (default: 2.5)
+            scale_factor: Pixels-to-mm conversion factor (default: 1.0)
+            parent: Optional parent QObject for proper cleanup
+        """
+        super().__init__(parent)
+        self.mask_array = mask_array
+        self.thickness_mm = thickness_mm
+        self.scale_factor = scale_factor
+
+    def run(self):
+        """
+        Execute thin 3D mesh generation.
+
+        Creates a SpaceCarver and generates a thin 3D mesh by extruding
+        the 2D mask to a constant thickness.
+        """
+        self._is_running = True
+        try:
+            # Import dependencies
+            from .mesh import SpaceCarver
+
+            # Create a progress callback that emits our signals
+            def progress_callback(current, total, message):
+                # Check for cancellation
+                if self._should_stop:
+                    return
+                # Emit progress signal
+                self.progress.emit(current, total, message)
+
+            # Create dummy carver to access the method
+            carver = SpaceCarver(res=64)
+
+            # Check for cancellation
+            if self._should_stop:
+                return
+
+            # Generate the thin 3D mesh
+            mesh = carver.generate_thin_3d(
+                self.mask_array,
+                thickness_mm=self.thickness_mm,
+                scale_factor=self.scale_factor,
+                progress_callback=progress_callback
+            )
+
+            if mesh is None:
+                self.error.emit("Thin 3D generation failed: no mask to extrude")
+                return
+
+            # Check for cancellation
+            if self._should_stop:
+                return
+
+            # Final progress update
+            self.progress.emit(100, 100, f"Thin 3D complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
+            self.finished.emit(mesh)
+
+        except Exception as e:
+            self.error.emit(f"Thin 3D generation failed: {str(e)}")
+        finally:
+            self._is_running = False

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QProgressBar)
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
-from .workers import MeshGenerationWorker
+from .workers import MeshGenerationWorker, Thin3DWorker
 
 class MaskableImageLabel(QLabel):
     """
@@ -363,6 +363,7 @@ class Image23DPrintGUI(QMainWindow):
         self.carver = None
         self.current_mesh = None
         self.mesh_worker = None
+        self.thin3d_worker = None
         self.pending_dims = None
         self.setup_ui()
 
@@ -778,8 +779,7 @@ class Image23DPrintGUI(QMainWindow):
             self.btn_gen.clicked.connect(self.generate_stl)
 
     def generate_2d3d(self):
-        """Generates a thin 3D mesh from the front mask."""
-        from .mesh import SpaceCarver
+        """Generates a thin 3D mesh from the front mask using async worker."""
         m = self.view_front.get_mask_array()
         if m is None:
             self.st.setText("Error: Load 'Front' image and mask it first!")
@@ -795,8 +795,40 @@ class Image23DPrintGUI(QMainWindow):
         else:
             scale = 1.0
 
-        carver = SpaceCarver(res=64) # Dummy carver to access the method
-        self.current_mesh = carver.generate_thin_3d(m, thickness_mm=2.5, scale_factor=scale)
+        # Show progress UI
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.btn_cancel.setVisible(True)
+        self.st.setText("Starting thin 3D generation...")
+
+        # Create worker
+        self.thin3d_worker = Thin3DWorker(
+            mask_array=m,
+            thickness_mm=2.5,
+            scale_factor=scale
+        )
+
+        # Connect signals
+        self.thin3d_worker.progress.connect(self.on_thin3d_progress)
+        self.thin3d_worker.finished.connect(self.on_thin3d_finished)
+        self.thin3d_worker.error.connect(self.on_thin3d_error)
+
+        # Start worker
+        self.thin3d_worker.start()
+
+    def on_thin3d_progress(self, current, total, message):
+        """Handle progress updates from thin 3D generation worker."""
+        self.progress_bar.setValue(current)
+        self.st.setText(message)
+
+    def on_thin3d_finished(self, mesh):
+        """Handle successful thin 3D generation completion."""
+        # Hide progress UI
+        self.progress_bar.setVisible(False)
+        self.btn_cancel.setVisible(False)
+
+        # Store the mesh
+        self.current_mesh = mesh
 
         if self.current_mesh:
             self.btn_pre.setVisible(True)
@@ -809,6 +841,21 @@ class Image23DPrintGUI(QMainWindow):
             self.st.setText("Thin 3D Generated!")
         else:
             self.st.setText("Failed to generate Thin 3D.")
+
+        # Clean up worker
+        self.thin3d_worker.deleteLater()
+
+    def on_thin3d_error(self, error_message):
+        """Handle thin 3D generation errors."""
+        # Hide progress UI
+        self.progress_bar.setVisible(False)
+        self.btn_cancel.setVisible(False)
+
+        # Show error message
+        self.st.setText(f"Error: {error_message}")
+
+        # Clean up worker
+        self.thin3d_worker.deleteLater()
 
     def preview_3d(self):
         """Opens a 3D preview window for the generated mesh in a separate process."""
