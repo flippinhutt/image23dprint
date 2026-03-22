@@ -20,7 +20,7 @@ class OllamaClient:
         """Check if Ollama is installed and running.
 
         Returns:
-            bool: True if Ollama API is accessible, False otherwise.
+            True if Ollama API is accessible, False otherwise.
         """
         if OllamaClient._available is not None:
             return OllamaClient._available
@@ -64,10 +64,10 @@ class OllamaClient:
             image_path: Path to image file.
 
         Returns:
-            Dict with keys:
-                - orientation: str (front/side/top/unknown)
-                - confidence: float (0.0-1.0)
-                - error: str (if failed)
+            Dictionary containing:
+                - orientation (str): One of 'front', 'side', 'top', or 'unknown'.
+                - confidence (float): Confidence score from 0.0 to 1.0.
+                - error (str, optional): Error message if detection failed.
         """
         if not self.is_available():
             return {"orientation": "unknown", "confidence": 0.0, "error": "Ollama not available"}
@@ -124,16 +124,19 @@ class OllamaClient:
     def analyze_image(self, image_path: str) -> Dict[str, Any]:
         """Comprehensive AI analysis of image for 3D reconstruction quality.
 
+        Performs viewpoint detection and checks for common image quality issues
+        that could affect reconstruction results.
+
         Args:
             image_path: Path to image file.
 
         Returns:
-            Dict with keys:
-                - orientation: str (front/side/top/unknown)
-                - confidence: float (0.0-1.0)
-                - quality_warnings: List[str] (blur, reflection, contrast issues)
-                - suggestions: str (natural language guidance)
-                - error: str (if failed)
+            Dictionary containing:
+                - orientation (str): Detected viewpoint ('front', 'side', 'top', 'unknown').
+                - confidence (float): Confidence score (0.0-1.0).
+                - quality_warnings (list): List of strings (e.g., 'blur', 'reflection').
+                - suggestions (str): Natural language guidance for the user.
+                - error (str, optional): Error message if analysis failed.
         """
         if not self.is_available():
             return {

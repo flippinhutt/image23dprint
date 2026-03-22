@@ -108,11 +108,55 @@ graph TD
 
 ## 🛠️ Technical Details
 
-- **Language**: Python 3.13
-- **UI Framework**: PySide6 (Qt)
-- **Computer Vision**: OpenCV, rembg (ONNX)
-- **3D Geometry**: trimesh, scikit-image (Marching Cubes)
 - **Package Manager**: uv
+
+---
+
+## 💻 Programmatic Usage
+
+You can use the `ProcessingPipeline` directly in your own Python scripts without the GUI:
+
+```python
+from image23dprint.processor import ProcessingPipeline, PipelineConfig
+import cv2
+
+# Configure the pipeline
+config = PipelineConfig(resolution=128, dimensions=(50, 50, 100))
+pipeline = ProcessingPipeline(config)
+
+# Load and set masks
+front_mask = cv2.imread("front_mask.png", cv2.IMREAD_GRAYSCALE)
+pipeline.set_mask("front", front_mask)
+
+# Generate mesh
+mesh = pipeline.process_full_3d()
+mesh.export("output.stl")
+```
+
+---
+
+## 🛠️ Developer Guide
+
+### Setup for Development
+1. Clone and install dependencies:
+   ```bash
+   git clone https://github.com/flippinhutt/image23dprint.git
+   cd image23dprint
+   uv sync --all-extras
+   ```
+
+### Running Tests
+We use `pytest` for unit and integration testing:
+```bash
+uv run pytest
+```
+
+### Linting & Formatting
+The project adheres to `ruff` standards:
+```bash
+uv run ruff check .
+uv run ruff format .
+```
 
 ---
 

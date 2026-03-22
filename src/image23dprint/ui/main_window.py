@@ -210,7 +210,13 @@ class Image23DPrintGUI(QMainWindow):
         self.st.setText(f"Active Brush: {'KEEP (No Red)' if m==0 else 'REMOVE (Red)'}")
 
     def analyze_with_llm(self) -> None:
-        """Analyzes loaded images using Ollama LLM vision and displays feedback."""
+        """Analyzes loaded images using Ollama LLM vision and displays feedback.
+
+        This method coordinates the analysis of loaded images via the local Ollama
+        instance. It saves images to temporary files, sends them to Ollama for
+        viewpoint detection and quality analysis, and updates the UI with the
+        results (including natural language suggestions and quality warnings).
+        """
         if Image23DPrintGUI._ollama_client is None:
             try:
                 from ..ollama_vision import OllamaClient
@@ -267,7 +273,12 @@ class Image23DPrintGUI(QMainWindow):
             self.llm_feedback_label.setText("No images loaded. Load images first.")
 
     def ai_mask_all(self) -> None:
-        """Triggers AI background removal for all three image views."""
+        """Triggers AI background removal for all active image views.
+
+        Iterates through all loaded images and utilizes the `rembg` session to
+        automatically remove backgrounds and generate silhouettes. Displays a
+        global progress bar and allows for user cancellation.
+        """
         views = [self.view_front, self.view_side, self.view_top]
         total_views = sum(1 for v in views if v.image is not None)
 
@@ -335,7 +346,14 @@ class Image23DPrintGUI(QMainWindow):
         return float(m.group()) if m else 1.0
 
     def generate_stl(self) -> None:
-        """Orchestrates the 3D carving process and mesh generation using async worker."""
+        """Orchestrates the 3D carving process and mesh generation.
+
+        This method coordinates the entire reconstruction workflow:
+        1. Validates available masks and target dimensions.
+        2. Configures the `MeshGenerationWorker` with user-specified resolution.
+        3. Launches the worker thread and manages the progress UI.
+        4. Calculates and displays ETA for the generation operation.
+        """
         # Get dimensions
         w, h, d = self.get_dim(self.edit_w.text()), self.get_dim(self.edit_h.text()), self.get_dim(self.edit_d.text())
 
@@ -553,7 +571,12 @@ class Image23DPrintGUI(QMainWindow):
                 self.st.setText(f"Unexpected error during export: {e}")
 
     def generate_2d3d(self) -> None:
-        """Generates a thin 3D mesh from the front mask using async worker."""
+        """Generates a thin 3D mesh from the front mask by extrusion.
+
+        This specialized mode takes the front silhouette and extrudes it into
+        a constant-thickness 3D object. It uses the `Thin3DWorker` to perform
+        the operation asynchronously, ensuring the main UI remains responsive.
+        """
         m = self.view_front.get_mask_array()
         if m is None:
             self.st.setText("Error: Load 'Front' image and mask it first!")

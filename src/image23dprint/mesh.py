@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Tuple, Optional, Callable
 from skimage import measure
 import trimesh
 import cv2
@@ -15,13 +16,16 @@ class SpaceCarver:
     a 3D voxel grid into the shape of the physical object.
     """
     
-    def __init__(self, res=128, dims=(1, 1, 1)):
-        """
-        Initialize the voxel grid with target proportions.
-        
+    def __init__(self, res: int = 128, dims: Tuple[float, float, float] = (1.0, 1.0, 1.0)):
+        """Initialize the voxel grid with target proportions.
+
+        Calculates the necessary voxel grid dimensions to maintain the real-world
+        aspect ratio provided by the user while keeping the longest dimension
+        at the requested resolution.
+
         Args:
-            res (int): The resolution of the longest dimension.
-            dims (tuple): Target real-world dimensions (Width, Depth, Height).
+            res: The resolution of the longest dimension (e.g., 128).
+            dims: Target real-world dimensions (Width, Depth, Height) in mm.
         """
         self.res = res
         max_d = max(dims)
@@ -30,15 +34,20 @@ class SpaceCarver:
         self.shape = tuple(max(4, s) for s in self.shape)
         self.voxels = np.ones(self.shape, dtype=bool)
 
-    def apply_mask(self, mask_img, axis='front', progress_callback=None):
-        """
-        Projects a 2D binary mask onto the 3D voxel grid and removes voxels
-        outside the silhouette.
+    def apply_mask(self, mask_img: np.ndarray, axis: str = 'front', progress_callback: Optional[Callable[[int, int, str], None]] = None) -> None:
+        """Projects a 2D binary mask onto the 3D voxel grid and carves voxels.
+
+        This method performs the core 'carving' operation by projecting the provided
+        silhouette along the specified axis and marking all voxels that fall
+        outside the silhouette as empty (False).
 
         Args:
-            mask_img (np.ndarray): Binary mask image (0 or 255).
-            axis (str): Projection axis ('front', 'side', or 'top').
-            progress_callback (callable, optional): Progress callback function(current, total, message).
+            mask_img: Binary mask image (0 or 255).
+            axis: Projection axis ('front', 'side', or 'top').
+            progress_callback: Optional callback for progress reporting.
+
+        Raises:
+            CancelledException: If the operation is cancelled via the callback.
         """
         if progress_callback:
             progress_callback(0, 100, f"Processing {axis} mask...")
@@ -103,18 +112,26 @@ class SpaceCarver:
         if progress_callback:
             progress_callback(100, 100, f"{axis} mask applied")
 
-    def generate_mesh(self, smooth=True, decimate=True, align_to_bed=True, progress_callback=None):
-        """
-        Extracts a 3D surface mesh from the voxel grid using Marching Cubes.
+    def generate_mesh(
+        self,
+        smooth: bool = True,
+        decimate: bool = True,
+        align_to_bed: bool = True,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None
+    ) -> Optional[trimesh.Trimesh]:
+        """Extracts a 3D surface mesh from the voxel grid using Marching Cubes.
+
+        Optionally applies smoothing, decimation, and print-bed alignment to the
+        resulting surface geometry.
 
         Args:
-            smooth (bool): Apply Laplacian smoothing to reduce voxel artifacts.
-            decimate (bool): Reduce triangle count (simplify) for print efficiency.
-            align_to_bed (bool): Translate the mesh so its bottom rests at Z=0.
-            progress_callback (callable, optional): Progress callback function(current, total, message).
+            smooth: Apply Laplacian smoothing to reduce voxel artifacts.
+            decimate: Reduce triangle count (simplify) for print efficiency.
+            align_to_bed: Translate the mesh so its bottom rests at Z=0.
+            progress_callback: Optional callback for progress reporting.
 
         Returns:
-            trimesh.Trimesh: The generated 3D mesh object.
+            The generated 3D mesh object, or None if the grid is empty.
         """
         if not np.any(self.voxels):
             if progress_callback:
@@ -175,19 +192,27 @@ class SpaceCarver:
 
         return mesh
 
-    def generate_thin_3d(self, mask_img, thickness_mm=2.0, scale_factor=1.0, progress_callback=None):
-        """
-        Generates a constant-thickness 3D mesh from a single 2D binary mask.
-        (The '2D to Thin 3D' roadmap feature)
+    def generate_thin_3d(
+        self,
+        mask_img: np.ndarray,
+        thickness_mm: float = 2.0,
+        scale_factor: float = 1.0,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None
+    ) -> Optional[trimesh.Trimesh]:
+        """Generates a constant-thickness 3D mesh from a single 2D binary mask.
+
+        This specialized mode creates 3D geometry from a single silhouette by
+        extruding it into the specified thickness. Useful for signs, badges,
+        and other planar-to-3D transformations.
 
         Args:
-            mask_img (np.ndarray): Binary mask image (True/False or 0/255).
-            thickness_mm (float): The target extrusion thickness in real-world units.
-            scale_factor (float): Pixels-to-mm conversion factor.
-            progress_callback (callable, optional): Progress callback function(current, total, message).
+            mask_img: Binary mask image (True/False or 0/255).
+            thickness_mm: The target extrusion thickness in real-world units (mm).
+            scale_factor: Pixels-to-mm conversion factor.
+            progress_callback: Optional callback for progress reporting.
 
         Returns:
-            trimesh.Trimesh: The extruded 3D mesh.
+            The extruded 3D mesh object.
         """
         if mask_img is None or not np.any(mask_img):
             if progress_callback:
