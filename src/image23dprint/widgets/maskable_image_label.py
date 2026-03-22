@@ -5,60 +5,109 @@ Supports freehand drawing, rectangle selection (GrabCut), scaling lines,
 and AI-powered background removal.
 """
 
+from typing import Optional, List, Tuple, Callable
 import numpy as np
 import cv2
-from PySide6.QtWidgets import QLabel, QFileDialog, QInputDialog
+from PySide6.QtWidgets import QLabel, QFileDialog, QInputDialog, QWidget
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer
-from PySide6.QtGui import QImage, QPixmap, QPainter, QPen, QColor
+from PySide6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QMouseEvent
 
 
 class MaskableImageLabel(QLabel):
     """
-    Subclass of QLabel for interactive image masking.
-    Supports freehand drawing, rectangle selection (GrabCut), scaling lines,
-    and AI-powered background removal.
-    """
-    _rembg_session = None
+    Interactive QLabel widget for image masking and editing.
 
-    def __init__(self, title, parent=None):
+    Provides multiple masking tools including AI-powered background removal,
+    GrabCut selection, edge detection, freehand drawing, and scaling calibration.
+    Supports undo/redo functionality and real-time visual feedback.
+
+    Attributes:
+        title: Display name for this image view
+        image: Loaded QPixmap for display
+        mask: Binary QImage mask (Format_Mono)
+        drawing: Flag indicating active freehand drawing
+        last_point: Previous mouse position during drawing
+        brush_mode: Drawing mode (1=Remove background, 0=Keep foreground)
+        grabcut_mode: Flag for GrabCut rectangle selection mode
+        scale_mode: Flag for scaling line measurement mode
+        scale_line: Tuple of start/end points for scale measurement
+        rect_start: Rectangle selection start point
+        rect_end: Rectangle selection end point
+        history: Stack of previous mask states for undo
+        quality_warnings: List of quality warning messages
+    """
+    # Class-level session cache for rembg AI model
+    _rembg_session: Optional[object] = None
+
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        """
+        Initialize the maskable image label widget.
+
+        Args:
+            title: Display name for this image view (e.g., "Front View")
+            parent: Optional parent widget for proper cleanup
+        """
         super().__init__(parent)
-        self.title = title
+        self.title: str = title
         self.setText(f"Click to Load {title}")
         self.setAlignment(Qt.AlignCenter)
         self.setFixedSize(300, 300)
         self.setStyleSheet("border: 2px dashed #aaa;")
-        self.image = None
-        self.mask = None
-        self.drawing = False
-        self.last_point = None
-        self.brush_mode = 1 # 1=Remove, 0=Keep
-        self.grabcut_mode = False
-        self.scale_mode = False
-        self.scale_line = None
-        self.rect_start = self.rect_end = None
-        self.history = []
-        self.quality_warnings = []
+        self.image: Optional[QPixmap] = None
+        self.mask: Optional[QImage] = None
+        self.drawing: bool = False
+        self.last_point: Optional[QPoint] = None
+        self.brush_mode: int = 1  # 1=Remove, 0=Keep
+        self.grabcut_mode: bool = False
+        self.scale_mode: bool = False
+        self.scale_line: Optional[Tuple[QPoint, QPoint]] = None
+        self.rect_start: Optional[QPoint] = None
+        self.rect_end: Optional[QPoint] = None
+        self.history: List[QImage] = []
+        self.quality_warnings: List[str] = []
 
-    def save_state(self):
-        """Save current mask state to the undo history stack."""
+    def save_state(self) -> None:
+        """
+        Save current mask state to the undo history stack.
+
+        Maintains up to 10 previous mask states for undo functionality.
+        Automatically removes oldest state when limit is exceeded.
+        """
         if self.mask:
             self.history.append(self.mask.copy())
             if len(self.history) > 10:
                 self.history.pop(0)
 
-    def undo(self):
-        """Revert the mask to its previous state from the history stack."""
+    def undo(self) -> None:
+        """
+        Revert the mask to its previous state from the history stack.
+
+        Pops the most recent mask from history and updates the display.
+        Does nothing if history is empty.
+        """
         if self.history:
             self.mask = self.history.pop()
             self.update_display()
 
-    def set_quality_warnings(self, warnings):
-        """Set quality warnings and update visual indicators."""
+    def set_quality_warnings(self, warnings: Optional[List[str]]) -> None:
+        """
+        Set quality warnings and update visual indicators.
+
+        Args:
+            warnings: List of warning messages, or None to clear warnings
+        """
         self.quality_warnings = warnings if warnings else []
         self.update_border_style()
 
-    def update_border_style(self):
-        """Update the border style based on quality warnings."""
+    def update_border_style(self) -> None:
+        """
+        Update the border style based on quality warnings.
+
+        Changes border color and tooltip to reflect image quality status:
+        - Orange border with warning icon if issues exist
+        - Green border if image loaded successfully
+        - Dashed gray border if no image loaded
+        """
         if self.quality_warnings:
             self.setStyleSheet("border: 3px solid #ff9800; background-color: #fff3e0;")
             self.setToolTip(f"⚠️ Quality Issues:\n" + "\n".join(f"• {w}" for w in self.quality_warnings))
@@ -68,8 +117,18 @@ class MaskableImageLabel(QLabel):
         else:
             self.setStyleSheet("border: 2px dashed #aaa;")
             self.setToolTip("")
-    def _map_to_image(self, pos):
-        """Maps a mouse position on the QLabel to its corresponding pixel in the underlying image."""
+    def _map_to_image(self, pos: QPoint) -> Optional[QPoint]:
+        """
+        Maps a mouse position on the QLabel to its corresponding pixel in the underlying image.
+
+        Accounts for image scaling and centering within the label bounds.
+
+        Args:
+            pos: Mouse position in label coordinates
+
+        Returns:
+            QPoint in image coordinates if within bounds, None otherwise
+        """
         if self.image is None:
             return None
         lw, lh = self.width(), self.height()
@@ -78,8 +137,19 @@ class MaskableImageLabel(QLabel):
         ip = pos - QPoint(ox, oy)
         return ip if 0 <= ip.x() < iw and 0 <= ip.y() < ih else None
 
-    def mousePressEvent(self, event):
-        """Handles mouse press for drawing, GrabCut initiation, or scaling tool."""
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """
+        Handles mouse press for drawing, GrabCut initiation, or scaling tool.
+
+        Behavior depends on current mode:
+        - No image: Triggers load_image() dialog
+        - GrabCut mode: Starts rectangle selection
+        - Scale mode: Starts scale line drawing
+        - Default: Initiates freehand drawing
+
+        Args:
+            event: Mouse press event with position and button information
+        """
         if self.image is None:
             self.load_image()
         elif event.button() == Qt.LeftButton:
@@ -94,8 +164,18 @@ class MaskableImageLabel(QLabel):
                     self.drawing = True
                     self.last_point = p
 
-    def mouseMoveEvent(self, event):
-        """Handles mouse move for real-time drawing and visual guides."""
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """
+        Handles mouse move for real-time drawing and visual guides.
+
+        Updates display in real-time for:
+        - GrabCut rectangle selection
+        - Scale line measurement
+        - Freehand mask drawing
+
+        Args:
+            event: Mouse move event with updated position
+        """
         p = self._map_to_image(event.position().toPoint())
         if not p:
             return
@@ -113,8 +193,18 @@ class MaskableImageLabel(QLabel):
             self.last_point = p
             self.update_display()
 
-    def mouseReleaseEvent(self, event):
-        """Commits the current interactive operation (GrabCut or Scale line)."""
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """
+        Commits the current interactive operation (GrabCut or Scale line).
+
+        Finalizes user actions initiated in mousePressEvent:
+        - GrabCut: Executes segmentation on selected rectangle
+        - Scale: Prompts for real-world measurement
+        - Drawing: Stops freehand drawing mode
+
+        Args:
+            event: Mouse release event indicating end of interaction
+        """
         if event.button() == Qt.LeftButton:
             if self.grabcut_mode and self.rect_start:
                 self.run_grabcut()
@@ -124,8 +214,13 @@ class MaskableImageLabel(QLabel):
             self.drawing = False
             self.update_display()
 
-    def finish_scale_line(self):
-        """Prompts for real-world length and sets the global scale factor."""
+    def finish_scale_line(self) -> None:
+        """
+        Prompts for real-world length and sets the global scale factor.
+
+        Calculates pixel-to-millimeter ratio based on user-drawn line and
+        real-world measurement input. Updates parent window's calibration scale.
+        """
         len_mm, ok = QInputDialog.getDouble(self, "Scale", "Length (mm):", 50.0, 0.1, 1000.0, 1)
         if ok and self.scale_line:
             p1, p2 = self.scale_line
@@ -135,8 +230,14 @@ class MaskableImageLabel(QLabel):
         self.scale_line = None
         self.update_display()
 
-    def load_image(self):
-        """Prompts user to select an image from disk and initializes the mask."""
+    def load_image(self) -> None:
+        """
+        Prompts user to select an image from disk and initializes the mask.
+
+        Opens file dialog for image selection, scales image to fit widget,
+        creates initial white mask (all foreground), and optionally triggers
+        AI analysis if parent window supports it.
+        """
         path, _ = QFileDialog.getOpenFileName(self, f"Open {self.title}", "", "Images (*.png *.jpg *.jpeg)")
         if path:
             pix = QPixmap(path)
@@ -157,8 +258,16 @@ class MaskableImageLabel(QLabel):
                 # Silently ignore errors - analysis is optional
                 pass
 
-    def update_display(self):
-        """Renders the image with the semi-transparent red mask overlay and UI guides."""
+    def update_display(self) -> None:
+        """
+        Renders the image with the semi-transparent red mask overlay and UI guides.
+
+        Composites the base image with:
+        - Semi-transparent red overlay for masked (background) regions
+        - Green dashed rectangle during GrabCut selection
+        - Yellow line during scale measurement
+        - Warning triangle icon if quality issues detected
+        """
         if not self.image or not self.mask:
             return
         display = self.image.copy()
@@ -206,8 +315,18 @@ class MaskableImageLabel(QLabel):
         painter.end()
         self.setPixmap(display)
 
-    def ai_mask(self, progress_callback=None):
-        """Uses rembg (AI) to automatically isolate the foreground object."""
+    def ai_mask(self, progress_callback: Optional[Callable[[int, str], None]] = None) -> None:
+        """
+        Uses rembg (AI) to automatically isolate the foreground object.
+
+        Employs the ISNet model for high-quality background removal.
+        Falls back to threshold-based masking on error. Caches the rembg
+        session for improved performance across multiple invocations.
+
+        Args:
+            progress_callback: Optional callback function(percent: int, message: str)
+                for progress updates during processing
+        """
         if not self.image:
             return
         self.save_state()
@@ -260,8 +379,14 @@ class MaskableImageLabel(QLabel):
                 progress_callback(100, f"Fallback completed for {self.title}")
         self.update_display()
 
-    def auto_mask(self):
-        """Fallback threshold-based mask generation using OpenCV."""
+    def auto_mask(self) -> None:
+        """
+        Fallback threshold-based mask generation using OpenCV.
+
+        Applies Gaussian blur, Otsu's automatic thresholding, and morphological
+        closing to generate a simple mask. Used as fallback when AI masking fails
+        or for simpler images that don't require AI processing.
+        """
         if not self.image:
             return
         self.save_state()
@@ -273,8 +398,14 @@ class MaskableImageLabel(QLabel):
         self.mask = QImage(m.data, m.shape[1], m.shape[0], m.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
         self.update_display()
 
-    def edge_mask(self):
-        """Generates a mask using Canny edge detection and hole filling."""
+    def edge_mask(self) -> None:
+        """
+        Generates a mask using Canny edge detection and hole filling.
+
+        Applies edge detection, dilation to connect edges, morphological closing,
+        and flood fill to create a solid mask of the foreground object. Works best
+        for images with clear object boundaries.
+        """
         if not self.image:
             return
         self.save_state()
@@ -306,8 +437,14 @@ class MaskableImageLabel(QLabel):
         self.mask = QImage(m.data, m.shape[1], m.shape[0], m.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
         self.update_display()
 
-    def run_grabcut(self):
-        """Applies OpenCV GrabCut algorithm within the selected bounding box."""
+    def run_grabcut(self) -> None:
+        """
+        Applies OpenCV GrabCut algorithm within the selected bounding box.
+
+        Uses iterative graph-cut segmentation to separate foreground from
+        background within the user-selected rectangle. Runs 5 iterations
+        for refined boundary detection.
+        """
         if not self.image or not self.rect_start:
             return
         self.save_state()
@@ -321,27 +458,37 @@ class MaskableImageLabel(QLabel):
         self.mask = QImage(mv.data, w, h, mv.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
         self.update_display()
 
-    def get_mask_array(self):
-        """Returns the current mask as a boolean NumPy array."""
+    def get_mask_array(self) -> Optional[np.ndarray]:
+        """
+        Returns the current mask as a boolean NumPy array.
+
+        Returns:
+            Boolean array where True = foreground, False = background,
+            or None if no mask exists
+        """
         if not self.mask:
             return None
         g = self.mask.convertToFormat(QImage.Format_Grayscale8)
         a = np.frombuffer(g.bits(), dtype=np.uint8).reshape((g.height(), g.bytesPerLine()))
         return a[:, :g.width()] > 128
 
-        if self.mask:
-            self.save_state()
-            self.mask.fill(Qt.color1)
-            self.update_display()
+    def refine(self) -> None:
+        """
+        Applies morphological operations to clean up mask noise and fill holes.
 
-    def refine(self):
-        """Applies morphological operations to clean up mask noise and fill holes."""
+        Uses a 7x7 kernel to perform:
+        1. Opening: Removes small noise and thin protrusions
+        2. Closing: Fills small holes and connects nearby regions
+
+        Useful for smoothing mask boundaries after manual editing or
+        automated masking operations.
+        """
         if not self.mask:
             return
         self.save_state()
         q = self.mask.convertToFormat(QImage.Format_Grayscale8)
         a = np.frombuffer(q.bits(), dtype=np.uint8).reshape((q.height(), q.bytesPerLine()))[:, :q.width()]
-        k = np.ones((7,7), np.uint8)
+        k = np.ones((7, 7), np.uint8)
         a = cv2.morphologyEx(a, cv2.MORPH_OPEN, k, iterations=2)
         a = cv2.morphologyEx(a, cv2.MORPH_CLOSE, k, iterations=2)
         self.mask = QImage(a.data, a.shape[1], a.shape[0], a.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
