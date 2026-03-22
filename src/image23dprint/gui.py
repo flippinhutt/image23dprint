@@ -271,6 +271,8 @@ def show_mesh_process(mesh):
 
 class Image23DPrintGUI(QMainWindow):
     """Main application window for Image23DPrint."""
+    _ollama_client = None
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Image23DPrint - Space Carving")
@@ -317,6 +319,8 @@ class Image23DPrintGUI(QMainWindow):
         cl.addLayout(bl)
         self.btn_ai = QPushButton("AI Auto-Mask")
         self.btn_ai.clicked.connect(self.ai_mask_all)
+        self.btn_analyze = QPushButton("Analyze with AI")
+        self.btn_analyze.clicked.connect(self.analyze_with_llm)
         self.btn_edge = QPushButton("Edge Mask")
         self.btn_edge.setToolTip("Use Canny Edge Detection for high-contrast objects")
         self.btn_edge.clicked.connect(self.edge_mask_all)
@@ -338,7 +342,7 @@ class Image23DPrintGUI(QMainWindow):
         self.btn_pre = QPushButton("Preview 3D")
         self.btn_pre.clicked.connect(self.preview_3d)
         self.btn_pre.setVisible(False)
-        for b in [self.btn_ai, self.btn_edge, self.btn_smart, self.btn_refine, self.btn_scale, self.btn_undo, self.btn_clr, self.btn_gen, self.btn_2d3d, self.btn_pre]:
+        for b in [self.btn_ai, self.btn_analyze, self.btn_edge, self.btn_smart, self.btn_refine, self.btn_scale, self.btn_undo, self.btn_clr, self.btn_gen, self.btn_2d3d, self.btn_pre]:
             bl.addWidget(b)
         gl = QHBoxLayout()
         cl.addLayout(gl)
@@ -418,6 +422,60 @@ class Image23DPrintGUI(QMainWindow):
         for v in [self.view_front, self.view_side, self.view_top]:
             v.brush_mode = m
         self.st.setText(f"Active Brush: {'KEEP (No Red)' if m==0 else 'REMOVE (Red)'}")
+
+    def analyze_with_llm(self):
+        """Analyzes loaded images using Ollama LLM vision and displays feedback."""
+        if Image23DPrintGUI._ollama_client is None:
+            try:
+                from .ollama_vision import OllamaClient
+                Image23DPrintGUI._ollama_client = OllamaClient()
+            except Exception as e:
+                self.llm_feedback_label.setText(f"Error loading Ollama client: {e}")
+                return
+
+        client = Image23DPrintGUI._ollama_client
+        if not client.is_available():
+            self.llm_feedback_label.setText("Ollama not available. Install from ollama.ai and run 'ollama pull llava'")
+            return
+
+        self.llm_feedback_label.setText("Analyzing images...")
+
+        views = [
+            (self.view_front, "Front"),
+            (self.view_side, "Side"),
+            (self.view_top, "Top")
+        ]
+
+        results = []
+        import tempfile
+        for view, name in views:
+            if view.image is None:
+                continue
+
+            temp_path = os.path.join(tempfile.gettempdir(), f"image23dprint_{name.lower()}.png")
+            try:
+                view.image.save(temp_path)
+                analysis = client.analyze_image(temp_path)
+
+                if "error" not in analysis:
+                    orientation = analysis.get("orientation", "unknown")
+                    confidence = analysis.get("confidence", 0.0)
+                    suggestions = analysis.get("suggestions", "")
+                    warnings = analysis.get("quality_warnings", [])
+
+                    result_text = f"**{name}**: {suggestions}"
+                    if warnings:
+                        result_text += f"\n  Warnings: {', '.join(warnings)}"
+                    results.append(result_text)
+                else:
+                    results.append(f"**{name}**: {analysis.get('suggestions', 'Analysis failed')}")
+            except Exception as e:
+                results.append(f"**{name}**: Error - {str(e)}")
+
+        if results:
+            self.llm_feedback_label.setText("\n\n".join(results))
+        else:
+            self.llm_feedback_label.setText("No images loaded. Load images first.")
 
     def ai_mask_all(self):
         """Triggers AI background removal for all three image views."""
