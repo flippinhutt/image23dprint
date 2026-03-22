@@ -3,6 +3,11 @@ from skimage import measure
 import trimesh
 import cv2
 
+
+class CancelledException(Exception):
+    """Exception raised when an operation is cancelled by the user."""
+    pass
+
 class SpaceCarver:
     """
     Core engine for 3D reconstruction using Space Carving (Voxel Carving).
@@ -71,26 +76,29 @@ class SpaceCarver:
             m2d = resized[::-1, :].T # Flip Z for vertical alignment
             total_slices = self.shape[1]
             for y in range(total_slices):
-                self.voxels[:, y, :] &= m2d
-                if progress_callback and y % max(1, total_slices // 10) == 0:
+                # Check for cancellation every slice for fast response
+                if progress_callback and y % max(1, total_slices // 20) == 0:
                     pct = 50 + int((y / total_slices) * 50)
                     progress_callback(pct, 100, f"Carving {axis} slice {y+1}/{total_slices}...")
+                self.voxels[:, y, :] &= m2d
         elif axis == 'side':
             m2d = resized[::-1, :].T # Flip Z for vertical alignment
             total_slices = self.shape[0]
             for x in range(total_slices):
-                self.voxels[x, :, :] &= m2d
-                if progress_callback and x % max(1, total_slices // 10) == 0:
+                # Check for cancellation every slice for fast response
+                if progress_callback and x % max(1, total_slices // 20) == 0:
                     pct = 50 + int((x / total_slices) * 50)
                     progress_callback(pct, 100, f"Carving {axis} slice {x+1}/{total_slices}...")
+                self.voxels[x, :, :] &= m2d
         elif axis == 'top':
             m2d = resized.T # (X, Y)
             total_slices = self.shape[2]
             for z in range(total_slices):
-                self.voxels[:, :, z] &= m2d
-                if progress_callback and z % max(1, total_slices // 10) == 0:
+                # Check for cancellation every slice for fast response
+                if progress_callback and z % max(1, total_slices // 20) == 0:
                     pct = 50 + int((z / total_slices) * 50)
                     progress_callback(pct, 100, f"Carving {axis} slice {z+1}/{total_slices}...")
+                self.voxels[:, :, z] &= m2d
 
         if progress_callback:
             progress_callback(100, 100, f"{axis} mask applied")
@@ -159,6 +167,8 @@ class SpaceCarver:
                 print("Aligning base to print bed (Z=0)...")
             mesh.apply_translation([0, 0, -mesh.bounds[0][2]])
             current_progress = 90
+            if progress_callback:
+                progress_callback(current_progress, 100, "Alignment complete")
 
         if progress_callback:
             progress_callback(100, 100, f"Mesh complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
@@ -206,6 +216,10 @@ class SpaceCarver:
         # Actually, let's just use the mesh.apply_mask logic's style
         mask_resized = (m > 127).T # (W, H)
         for y in range(vox_thickness):
+            # Check for cancellation periodically
+            if progress_callback and y % max(1, vox_thickness // 10) == 0:
+                pct = 20 + int((y / vox_thickness) * 20)
+                progress_callback(pct, 100, f"Building voxel layers {y+1}/{vox_thickness}...")
             grid[:, y, :] = mask_resized
 
         if progress_callback:
@@ -232,6 +246,9 @@ class SpaceCarver:
         # But for STL export, customers usually want height to be Z.
         # Let's rotate it so it lies flat.
         mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi/2, [1, 0, 0]))
+
+        if progress_callback:
+            progress_callback(90, 100, "Finalizing mesh...")
 
         if progress_callback:
             progress_callback(100, 100, f"Thin 3D mesh complete: {len(mesh.vertices)} vertices")

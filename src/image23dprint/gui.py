@@ -459,6 +459,7 @@ class Image23DPrintGUI(QMainWindow):
         pgl.addLayout(pbl)
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setVisible(False)
+        self.btn_cancel.clicked.connect(self.cancel_operation)
         pbl.addWidget(self.btn_cancel)
 
         self.st = QLabel("Load Images -> AI Mask -> Generate")
@@ -765,6 +766,27 @@ class Image23DPrintGUI(QMainWindow):
         if hasattr(self, 'mesh_worker') and self.mesh_worker:
             self.mesh_worker.deleteLater()
             self.mesh_worker = None
+
+    def cancel_operation(self):
+        """Cancel any running worker operation."""
+        cancelled = False
+
+        # Try to stop mesh worker
+        if hasattr(self, 'mesh_worker') and self.mesh_worker and self.mesh_worker.is_running():
+            self.mesh_worker.stop()
+            self.st.setText("Operation cancelled")
+            cancelled = True
+
+        # Try to stop thin 3D worker
+        if hasattr(self, 'thin3d_worker') and self.thin3d_worker and self.thin3d_worker.is_running():
+            self.thin3d_worker.stop()
+            self.st.setText("Operation cancelled")
+            cancelled = True
+
+        # Hide progress UI if something was cancelled
+        if cancelled:
+            self.progress_bar.setVisible(False)
+            self.btn_cancel.setVisible(False)
 
     def export_stl(self):
         """Prompt for file save and export the generated mesh to STL format."""

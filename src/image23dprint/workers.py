@@ -10,6 +10,11 @@ from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtGui import QImage
 
 
+class CancelledException(Exception):
+    """Exception raised when an operation is cancelled by the user."""
+    pass
+
+
 class BaseWorker(QThread):
     """
     Base worker class for asynchronous background operations.
@@ -233,6 +238,12 @@ class MeshGenerationWorker(BaseWorker):
             # Import dependencies
             from .mesh import SpaceCarver
 
+            # Create a progress callback that checks for cancellation
+            def progress_callback(current, total, message):
+                if self._should_stop:
+                    raise CancelledException("Operation cancelled by user")
+                self.progress.emit(current, total, message)
+
             # Calculate total steps for progress tracking
             num_masks = len(self.masks)
             total_steps = num_masks + 3  # masks + marching_cubes + smooth + decimate
@@ -257,8 +268,12 @@ class MeshGenerationWorker(BaseWorker):
                     (qimg.height(), qimg.bytesPerLine())
                 )[:, :qimg.width()].copy()
 
-                # Apply mask to carver
-                carver.apply_mask(mask_arr, axis=axis)
+                # Check for cancellation
+                if self._should_stop:
+                    return
+
+                # Apply mask to carver with cancellation-aware callback
+                carver.apply_mask(mask_arr, axis=axis, progress_callback=progress_callback)
 
                 # Check for cancellation
                 if self._should_stop:
@@ -276,7 +291,8 @@ class MeshGenerationWorker(BaseWorker):
             mesh = carver.generate_mesh(
                 smooth=self.smooth,
                 decimate=self.decimate,
-                align_to_bed=True
+                align_to_bed=True,
+                progress_callback=progress_callback
             )
 
             if mesh is None:
@@ -291,6 +307,9 @@ class MeshGenerationWorker(BaseWorker):
             self.progress.emit(100, 100, f"Mesh complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
             self.finished.emit(mesh)
 
+        except CancelledException:
+            # Operation was cancelled - exit cleanly without error
+            return
         except Exception as e:
             self.error.emit(f"Mesh generation failed: {str(e)}")
         finally:
@@ -337,12 +356,10 @@ class Thin3DWorker(BaseWorker):
             # Import dependencies
             from .mesh import SpaceCarver
 
-            # Create a progress callback that emits our signals
+            # Create a progress callback that checks for cancellation
             def progress_callback(current, total, message):
-                # Check for cancellation
                 if self._should_stop:
-                    return
-                # Emit progress signal
+                    raise CancelledException("Operation cancelled by user")
                 self.progress.emit(current, total, message)
 
             # Create dummy carver to access the method
@@ -372,6 +389,9 @@ class Thin3DWorker(BaseWorker):
             self.progress.emit(100, 100, f"Thin 3D complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
             self.finished.emit(mesh)
 
+        except CancelledException:
+            # Operation was cancelled - exit cleanly without error
+            return
         except Exception as e:
             self.error.emit(f"Thin 3D generation failed: {str(e)}")
         finally:
