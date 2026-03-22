@@ -159,7 +159,7 @@ class AIRemovalWorker(BaseWorker):
                 return
 
             # Run background removal
-            self.progress.emit(50, 100, "Removing background with AI...")
+            self.progress.emit(50, 100, "Removing background...")
             output = remove(img, session=AIRemovalWorker._rembg_session)
 
             # Check for cancellation
@@ -183,7 +183,7 @@ class AIRemovalWorker(BaseWorker):
             bg_pct = np.sum(mask_values == 0) / mask_values.size
 
             # Emit completion
-            self.progress.emit(100, 100, f"AI complete: {bg_pct:.1%} background removed")
+            self.progress.emit(100, 100, f"Background removal complete: {bg_pct:.1%} removed")
             self.finished.emit(mask)
 
         except Exception as e:
@@ -259,7 +259,7 @@ class MeshGenerationWorker(BaseWorker):
             # Step 2-N: Apply each mask
             for idx, (name, (mask_qimage, axis)) in enumerate(self.masks.items(), start=1):
                 step_progress = int((idx / total_steps) * 100)
-                self.progress.emit(step_progress, 100, f"Carving {name} view...")
+                self.progress.emit(step_progress, 100, f"Carving space from {name} view...")
 
                 # Convert QImage mask to numpy array
                 qimg = mask_qimage.convertToFormat(QImage.Format_Grayscale8)
@@ -281,7 +281,7 @@ class MeshGenerationWorker(BaseWorker):
 
             # Step N+1: Generate mesh with marching cubes
             step_progress = int(((num_masks + 1) / total_steps) * 100)
-            self.progress.emit(step_progress, 100, "Extracting surface mesh...")
+            self.progress.emit(step_progress, 100, "Generating mesh from carved voxels...")
 
             # Check for cancellation
             if self._should_stop:
@@ -304,7 +304,7 @@ class MeshGenerationWorker(BaseWorker):
                 return
 
             # Final progress update
-            self.progress.emit(100, 100, f"Mesh complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
+            self.progress.emit(100, 100, f"Mesh generation complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
             self.finished.emit(mesh)
 
         except CancelledException:
@@ -362,6 +362,9 @@ class Thin3DWorker(BaseWorker):
                     raise CancelledException("Operation cancelled by user")
                 self.progress.emit(current, total, message)
 
+            # Emit initial progress
+            self.progress.emit(0, 100, "Initializing thin 3D generation...")
+
             # Create dummy carver to access the method
             carver = SpaceCarver(res=64)
 
@@ -386,7 +389,7 @@ class Thin3DWorker(BaseWorker):
                 return
 
             # Final progress update
-            self.progress.emit(100, 100, f"Thin 3D complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
+            self.progress.emit(100, 100, f"Thin 3D generation complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
             self.finished.emit(mesh)
 
         except CancelledException:

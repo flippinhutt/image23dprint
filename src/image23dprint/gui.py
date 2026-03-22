@@ -213,20 +213,20 @@ class MaskableImageLabel(QLabel):
         print(f"AI Masking {self.title} with ISNet...")
 
         if progress_callback:
-            progress_callback(0, f"Starting AI mask for {self.title}...")
+            progress_callback(0, f"Preparing {self.title} for background removal...")
 
         try:
             from rembg import remove, new_session
             from PIL import Image
 
             if progress_callback:
-                progress_callback(25, f"Loading AI model...")
+                progress_callback(25, f"Loading AI background removal model...")
 
             if MaskableImageLabel._rembg_session is None:
                 MaskableImageLabel._rembg_session = new_session("isnet-general-use")
 
             if progress_callback:
-                progress_callback(40, f"Processing {self.title} image...")
+                progress_callback(40, f"Analyzing {self.title} image...")
 
             qimg = self.image.toImage().convertToFormat(QImage.Format_RGBA8888)
             ptr = qimg.bits()
@@ -234,12 +234,12 @@ class MaskableImageLabel(QLabel):
             img = Image.fromarray(arr)
 
             if progress_callback:
-                progress_callback(60, f"Running AI detection on {self.title}...")
+                progress_callback(60, f"Removing background from {self.title}...")
 
             output = remove(img, session=MaskableImageLabel._rembg_session)
 
             if progress_callback:
-                progress_callback(80, f"Generating mask for {self.title}...")
+                progress_callback(80, f"Creating mask for {self.title}...")
 
             mask_v = (np.array(output)[:, :, 3] > 127).astype(np.uint8) * 255
             self.mask = QImage(mask_v.data, mask_v.shape[1], mask_v.shape[0], mask_v.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
@@ -249,7 +249,7 @@ class MaskableImageLabel(QLabel):
                 print("Warning: AI might have missed the object. Try 'Smart Outline'!")
 
             if progress_callback:
-                progress_callback(100, f"Completed {self.title}")
+                progress_callback(100, f"Background removal complete for {self.title}")
         except Exception as e:
             print(f"AI Error: {e}")
             if progress_callback:
