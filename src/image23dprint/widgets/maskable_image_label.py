@@ -110,7 +110,7 @@ class MaskableImageLabel(QLabel):
         """
         if self.quality_warnings:
             self.setStyleSheet("border: 3px solid #ff9800; background-color: #fff3e0;")
-            self.setToolTip(f"⚠️ Quality Issues:\n" + "\n".join(f"• {w}" for w in self.quality_warnings))
+            self.setToolTip("⚠️ Quality Issues:\n" + "\n".join(f"• {w}" for w in self.quality_warnings))
         elif self.image:
             self.setStyleSheet("border: 2px solid #4caf50;")
             self.setToolTip("")
@@ -254,7 +254,7 @@ class MaskableImageLabel(QLabel):
                 if hasattr(parent, 'analyze_with_llm'):
                     # Schedule analysis to run after UI updates (non-blocking)
                     QTimer.singleShot(100, parent.analyze_with_llm)
-            except Exception as e:
+            except Exception: # nosec B110
                 # Silently ignore errors - analysis is optional
                 pass
 
@@ -340,7 +340,7 @@ class MaskableImageLabel(QLabel):
             from PIL import Image
 
             if progress_callback:
-                progress_callback(25, f"Loading AI background removal model...")
+                progress_callback(25, "Loading AI background removal model...")
 
             if MaskableImageLabel._rembg_session is None:
                 MaskableImageLabel._rembg_session = new_session("isnet-general-use")

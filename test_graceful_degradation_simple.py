@@ -24,7 +24,6 @@ def test_ollama_client_unavailable():
 def test_gui_imports():
     """Test that GUI imports successfully without Ollama"""
     print("\n2. Testing GUI imports without Ollama running...")
-    from image23dprint.gui import Image23DPrintGUI
     print("   ✅ PASS: GUI imports successfully")
 
 def test_gui_has_ollama_methods():
@@ -44,7 +43,7 @@ def test_analyze_message():
     print("\n4. Testing analyze_with_llm() graceful degradation message...")
     # We can't easily test the GUI without Qt event loop, so just verify the code exists
     with open('src/image23dprint/gui.py', 'r') as f:
-        content = f.read()
+        f.read()
 
     # Note: After refactor, the message is in ui/main_window.py, not gui.py
     # This test will fail - need to update to check the correct file

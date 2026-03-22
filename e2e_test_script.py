@@ -7,8 +7,6 @@ This script performs automated verification of the Ollama integration features.
 import sys
 import os
 import tempfile
-import time
-from pathlib import Path
 
 # Add src to path
 sys.path.insert(0, 'src')
@@ -79,7 +77,7 @@ def test_image_analysis():
             print("📊 Analyzing test image (this may take 5-10 seconds)...")
             result = ollama.analyze_image(test_image_path)
 
-            print(f"✅ Analysis completed successfully")
+            print("✅ Analysis completed successfully")
             print(f"   Orientation: {result.get('orientation', 'N/A')}")
             print(f"   Confidence: {result.get('confidence', 0):.1%}")
 

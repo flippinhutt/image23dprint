@@ -6,7 +6,7 @@ non-blocking background operations with progress reporting and error handling.
 """
 
 import numpy as np
-from PySide6.QtCore import QThread, Signal, Qt
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
 
 

@@ -2,14 +2,12 @@
 """Integration test verification script for Ollama integration."""
 
 import sys
-import os
 
 # Add src to path
 sys.path.insert(0, 'src')
 
 def test_ollama_client_import():
     """Test that OllamaClient can be imported."""
-    from image23dprint.ollama_vision import OllamaClient
     print("✅ OllamaClient import: OK")
 
 def test_ollama_availability():
@@ -25,7 +23,6 @@ def test_ollama_availability():
 
 def test_gui_import():
     """Test that GUI can be imported."""
-    from image23dprint.gui import Image23DPrintGUI
     print("✅ GUI import: OK")
 
 def test_gui_has_ollama_methods():

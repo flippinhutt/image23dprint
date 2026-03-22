@@ -1,7 +1,6 @@
 import base64
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, mock_open
+from unittest.mock import Mock, patch
 from image23dprint.ollama_vision import OllamaClient
 
 

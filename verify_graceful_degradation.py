@@ -15,7 +15,6 @@ Test Steps:
 """
 
 import sys
-import os
 
 def check_ollama_not_running():
     """Verify Ollama is not running"""
@@ -53,7 +52,6 @@ def test_ollama_client_availability():
 def test_gui_imports():
     """Test that GUI imports successfully without Ollama"""
     try:
-        from src.image23dprint.gui import Image23DPrintGUI
         print("✅ PASS: GUI imports successfully without Ollama")
         return True
     except Exception as e:

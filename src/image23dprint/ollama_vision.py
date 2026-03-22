@@ -2,7 +2,7 @@
 
 import base64
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 
 class OllamaClient:
@@ -35,7 +35,7 @@ class OllamaClient:
             if OllamaClient._available:
                 print("Ollama detected and running")
             return OllamaClient._available
-        except (ImportError, Exception) as e:
+        except (ImportError, Exception):
             OllamaClient._available = False
             return False
 
@@ -54,7 +54,7 @@ class OllamaClient:
                 return None
             with open(path, "rb") as f:
                 return base64.b64encode(f.read()).decode('utf-8')
-        except Exception as e:
+        except Exception:
             return None
 
     def detect_orientation(self, image_path: str) -> Dict[str, Any]:

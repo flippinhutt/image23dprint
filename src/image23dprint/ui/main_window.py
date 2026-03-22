@@ -1,12 +1,11 @@
-import sys
 import os
 import re
 import time
-from typing import Optional, Callable, Dict, Tuple
+from typing import Optional, Tuple
 import numpy as np
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QFileDialog,
-                             QSlider, QGroupBox, QInputDialog, QLineEdit, QRadioButton,
+                             QSlider, QGroupBox, QLineEdit, QRadioButton,
                              QProgressBar)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QIcon
@@ -245,8 +244,6 @@ class Image23DPrintGUI(QMainWindow):
                 analysis = client.analyze_image(temp_path)
 
                 if "error" not in analysis:
-                    orientation = analysis.get("orientation", "unknown")
-                    confidence = analysis.get("confidence", 0.0)
                     suggestions = analysis.get("suggestions", "")
                     warnings = analysis.get("quality_warnings", [])
 
