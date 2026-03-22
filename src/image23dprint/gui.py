@@ -1,0 +1,346 @@
+import sys
+import os
+import re
+import numpy as np
+import cv2
+import trimesh
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                             QHBoxLayout, QPushButton, QLabel, QFileDialog, 
+                             QSlider, QGroupBox, QInputDialog, QLineEdit, QRadioButton)
+from PySide6.QtCore import Qt, QSize, QPoint, QRect
+from PySide6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
+
+class MaskableImageLabel(QLabel):
+    """
+    Subclass of QLabel for interactive image masking.
+    Supports freehand drawing, rectangle selection (GrabCut), scaling lines, 
+    and AI-powered background removal.
+    """
+    _rembg_session = None
+
+    def __init__(self, title, parent=None):
+        super().__init__(parent)
+        self.title = title
+        self.setText(f"Click to Load {title}")
+        self.setAlignment(Qt.AlignCenter)
+        self.setFixedSize(300, 300)
+        self.setStyleSheet("border: 2px dashed #aaa;")
+        self.image = None
+        self.mask = None
+        self.drawing = False
+        self.last_point = None
+        self.brush_mode = 1 # 1=Remove, 0=Keep
+        self.grabcut_mode = False
+        self.scale_mode = False
+        self.scale_line = None
+        self.rect_start = self.rect_end = None
+        self.history = []
+
+    def save_state(self):
+        """Save current mask state to the undo history stack."""
+        if self.mask:
+            self.history.append(self.mask.copy())
+            if len(self.history) > 10: self.history.pop(0)
+
+    def undo(self):
+        """Revert the mask to its previous state from the history stack."""
+        if self.history:
+            self.mask = self.history.pop()
+            self.update_display()
+
+    def _map_to_image(self, pos):
+        """Maps a mouse position on the QLabel to its corresponding pixel in the underlying image."""
+        if self.image is None: return None
+        lw, lh = self.width(), self.height()
+        iw, ih = self.image.width(), self.image.height()
+        ox, oy = (lw - iw) // 2, (lh - ih) // 2
+        ip = pos - QPoint(ox, oy)
+        return ip if 0 <= ip.x() < iw and 0 <= ip.y() < ih else None
+
+    def mousePressEvent(self, event):
+        """Handles mouse press for drawing, GrabCut initiation, or scaling tool."""
+        if self.image is None: self.load_image()
+        elif event.button() == Qt.LeftButton:
+            p = self._map_to_image(event.position().toPoint())
+            if p:
+                if self.grabcut_mode: self.rect_start = self.rect_end = p
+                elif self.scale_mode: self.scale_line = (p, p)
+                else: 
+                    self.save_state()
+                    self.drawing = True; self.last_point = p
+
+    def mouseMoveEvent(self, event):
+        """Handles mouse move for real-time drawing and visual guides."""
+        p = self._map_to_image(event.position().toPoint())
+        if not p: return
+        if self.grabcut_mode and self.rect_start: self.rect_end = p; self.update_display()
+        elif self.scale_mode and self.scale_line: self.scale_line = (self.scale_line[0], p); self.update_display()
+        elif self.drawing and self.mask:
+            painter = QPainter(self.mask)
+            color = Qt.color1 if self.brush_mode == 1 else Qt.color0
+            painter.setPen(QPen(color, 20, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.drawLine(self.last_point, p); self.last_point = p; self.update_display()
+
+    def mouseReleaseEvent(self, event):
+        """Commits the current interactive operation (GrabCut or Scale line)."""
+        if event.button() == Qt.LeftButton:
+            if self.grabcut_mode and self.rect_start: self.run_grabcut(); self.rect_start = self.rect_end = None
+            elif self.scale_mode and self.scale_line: self.finish_scale_line()
+            self.drawing = False; self.update_display()
+
+    def finish_scale_line(self):
+        """Prompts for real-world length and sets the global scale factor."""
+        len_mm, ok = QInputDialog.getDouble(self, "Scale", "Length (mm):", 50.0, 0.1, 1000.0, 1)
+        if ok and self.scale_line:
+            p1, p2 = self.scale_line
+            px_len = np.sqrt((p1.x()-p2.x())**2 + (p1.y()-p2.y())**2)
+            if px_len > 0: self.window().set_calibration_scale(len_mm / px_len, self.title)
+        self.scale_line = None; self.update_display()
+
+    def load_image(self):
+        """Prompts user to select an image from disk and initializes the mask."""
+        path, _ = QFileDialog.getOpenFileName(self, f"Open {self.title}", "", "Images (*.png *.jpg *.jpeg)")
+        if path:
+            pix = QPixmap(path)
+            self.image = pix.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.mask = QImage(self.image.size(), QImage.Format_Mono); self.mask.fill(Qt.color1)
+            self.update_display()
+
+    def update_display(self):
+        """Renders the image with the semi-transparent red mask overlay and UI guides."""
+        if not self.image or not self.mask: return
+        display = self.image.copy()
+        w, h = self.mask.width(), self.mask.height()
+        
+        gray = self.mask.convertToFormat(QImage.Format_Grayscale8)
+        mask_arr = np.frombuffer(gray.bits(), dtype=np.uint8).reshape((h, gray.bytesPerLine()))[:, :w]
+        
+        overlay = QImage(w, h, QImage.Format_ARGB32); overlay.fill(0)
+        arr = np.frombuffer(overlay.bits(), dtype=np.uint8).reshape((h, overlay.bytesPerLine() // 4, 4))
+        arr[mask_arr == 0, 2] = 255 # Red
+        arr[mask_arr == 0, 3] = 120 # Semi-transparent Alpha
+        
+        painter = QPainter(display)
+        painter.drawImage(0, 0, overlay)
+        if self.grabcut_mode and self.rect_start and self.rect_end:
+            painter.setPen(QPen(QColor(0, 255, 0), 2, Qt.DashLine))
+            painter.drawRect(QRect(self.rect_start, self.rect_end).normalized())
+        if self.scale_line:
+            painter.setPen(QPen(QColor(255, 255, 0), 2, Qt.SolidLine))
+            painter.drawLine(self.scale_line[0], self.scale_line[1])
+        painter.end()
+        self.setPixmap(display)
+
+    def ai_mask(self):
+        """Uses rembg (AI) to automatically isolate the foreground object."""
+        if not self.image: return
+        self.save_state()
+        print(f"AI Masking {self.title} with ISNet...")
+        try:
+            from rembg import remove, new_session
+            from PIL import Image
+            if MaskableImageLabel._rembg_session is None:
+                MaskableImageLabel._rembg_session = new_session("isnet-general-use")
+            qimg = self.image.toImage().convertToFormat(QImage.Format_RGBA8888)
+            ptr = qimg.bits()
+            arr = np.frombuffer(ptr, dtype=np.uint8).reshape((qimg.height(), qimg.bytesPerLine() // 4, 4))[:, :qimg.width()].copy()
+            img = Image.fromarray(arr)
+            output = remove(img, session=MaskableImageLabel._rembg_session)
+            mask_v = (np.array(output)[:, :, 3] > 127).astype(np.uint8) * 255
+            self.mask = QImage(mask_v.data, mask_v.shape[1], mask_v.shape[0], mask_v.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
+            bg_pct = np.sum(mask_v==0)/mask_v.size
+            print(f"AI Success: {bg_pct:.1%} background removed")
+            if bg_pct > 0.99: print("Warning: AI might have missed the object. Try 'Smart Outline'!")
+        except Exception as e:
+            print(f"AI Error: {e}"); self.auto_mask()
+        self.update_display()
+
+    def auto_mask(self):
+        """Fallback threshold-based mask generation using OpenCV."""
+        if not self.image: return
+        self.save_state()
+        q = self.image.toImage().convertToFormat(QImage.Format_Grayscale8)
+        a = np.frombuffer(q.bits(), dtype=np.uint8).reshape((q.height(), q.bytesPerLine()))[:, :q.width()]
+        b = cv2.GaussianBlur(a, (5, 5), 0)
+        _, m = cv2.threshold(b, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=2)
+        self.mask = QImage(m.data, m.shape[1], m.shape[0], m.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
+        self.update_display()
+
+    def run_grabcut(self):
+        """Applies OpenCV GrabCut algorithm within the selected bounding box."""
+        if not self.image or not self.rect_start: return
+        self.save_state()
+        q = self.image.toImage().convertToFormat(QImage.Format_RGB888)
+        s, w, h = q.bytesPerLine(), q.width(), q.height()
+        a = np.frombuffer(q.bits(), dtype=np.uint8).reshape((h, s))[:, :w*3].reshape((h, w, 3)).copy()
+        r = (QRect(self.rect_start, self.rect_end).normalized().x(), QRect(self.rect_start, self.rect_end).normalized().y(), QRect(self.rect_start, self.rect_end).normalized().width(), QRect(self.rect_start, self.rect_end).normalized().height())
+        m = np.zeros(a.shape[:2], np.uint8)
+        cv2.grabCut(a, m, r, np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64), 5, cv2.GC_INIT_WITH_RECT)
+        mv = np.where((m == 2) | (m == 0), 0, 255).astype('uint8')
+        self.mask = QImage(mv.data, w, h, mv.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
+        self.update_display()
+
+    def get_mask_array(self):
+        """Returns the current mask as a boolean NumPy array."""
+        if not self.mask: return None
+        g = self.mask.convertToFormat(QImage.Format_Grayscale8)
+        a = np.frombuffer(g.bits(), dtype=np.uint8).reshape((g.height(), g.bytesPerLine()))
+        return a[:, :g.width()] > 128
+
+    def clear_mask(self):
+        """Resets the mask to completely transparent (Original)."""
+        if self.mask: self.save_state(); self.mask.fill(Qt.color1); self.update_display()
+
+    def refine(self):
+        """Applies morphological operations to clean up mask noise and fill holes."""
+        if not self.mask: return
+        self.save_state()
+        q = self.mask.convertToFormat(QImage.Format_Grayscale8)
+        a = np.frombuffer(q.bits(), dtype=np.uint8).reshape((q.height(), q.bytesPerLine()))[:, :q.width()]
+        k = np.ones((7,7), np.uint8)
+        a = cv2.morphologyEx(a, cv2.MORPH_OPEN, k, iterations=2)
+        a = cv2.morphologyEx(a, cv2.MORPH_CLOSE, k, iterations=2)
+        self.mask = QImage(a.data, a.shape[1], a.shape[0], a.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
+        self.update_display()
+
+def show_mesh_process(mesh):
+    """Entry point for parallel 3D viewer process to prevent main UI blocking."""
+    mesh.show(resolution=(800, 600))
+
+class Image23DPrintGUI(QMainWindow):
+    """Main application window for Image23DPrint."""
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Image23DPrint - Space Carving")
+        icon_path = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
+        if os.path.exists(icon_path): self.setWindowIcon(QIcon(icon_path))
+        self.carver = None; self.current_mesh = None; self.setup_ui()
+
+    def setup_ui(self):
+        """Initializes the UI layout, sliders, buttons, and image labels."""
+        cw = QWidget(); self.setCentralWidget(cw); ml = QVBoxLayout(cw)
+        il = QHBoxLayout()
+        self.view_front = MaskableImageLabel("Front"); self.view_side = MaskableImageLabel("Side"); self.view_top = MaskableImageLabel("Top")
+        for v in [self.view_front, self.view_side, self.view_top]: il.addWidget(v)
+        ml.addLayout(il)
+        cg = QGroupBox("Controls"); cl = QVBoxLayout(cg); ml.addWidget(cg)
+        rl = QHBoxLayout(); cl.addLayout(rl); rl.addWidget(QLabel("Res:"))
+        self.res_slider = QSlider(Qt.Horizontal); self.res_slider.setRange(32, 256); self.res_slider.setValue(64); rl.addWidget(self.res_slider)
+        self.res_label = QLabel("64"); rl.addWidget(self.res_label); self.res_slider.valueChanged.connect(lambda v: self.res_label.setText(str(v)))
+        mg = QGroupBox("Target Dimensions (mm)"); mgl = QHBoxLayout(mg); cl.addWidget(mg)
+        self.edit_w, self.edit_h, self.edit_d = QLineEdit(), QLineEdit(), QLineEdit()
+        for e, l in [(self.edit_w, "W:"), (self.edit_h, "H:"), (self.edit_d, "D:")]: mgl.addWidget(QLabel(l)); mgl.addWidget(e)
+        bl = QHBoxLayout(); cl.addLayout(bl)
+        self.btn_ai = QPushButton("AI Auto-Mask"); self.btn_ai.clicked.connect(self.ai_mask_all)
+        self.btn_smart = QPushButton("Smart Outline"); self.btn_smart.clicked.connect(lambda: self.set_mode('smart'))
+        self.btn_scale = QPushButton("Scale Tool"); self.btn_scale.clicked.connect(lambda: self.set_mode('scale'))
+        self.btn_undo = QPushButton("Undo"); self.btn_undo.clicked.connect(self.undo_all)
+        self.btn_refine = QPushButton("Refine Mask"); self.btn_refine.clicked.connect(self.refine_masks)
+        self.btn_clr = QPushButton("Clear"); self.btn_clr.clicked.connect(self.clear_all_masks)
+        self.btn_gen = QPushButton("Generate STL"); self.btn_gen.clicked.connect(self.generate_stl)
+        self.btn_pre = QPushButton("Preview 3D"); self.btn_pre.clicked.connect(self.preview_3d); self.btn_pre.setVisible(False)
+        for b in [self.btn_ai, self.btn_smart, self.btn_refine, self.btn_scale, self.btn_undo, self.btn_clr, self.btn_gen, self.btn_pre]: bl.addWidget(b)
+        gl = QHBoxLayout(); cl.addLayout(gl)
+        self.radio_remove = QRadioButton("Remove (Red)"); self.radio_keep = QRadioButton("Keep (Orig)"); self.radio_remove.setChecked(True)
+        self.radio_remove.toggled.connect(self.update_brush_mode); self.radio_keep.toggled.connect(self.update_brush_mode)
+        gl.addWidget(self.radio_remove); gl.addWidget(self.radio_keep)
+        self.st = QLabel("Load Images -> AI Mask -> Generate"); ml.addWidget(self.st)
+        self.update_brush_mode()
+
+    def preview_3d(self):
+        """Launches the 3D previewer in a separate process."""
+        if self.current_mesh:
+            import multiprocessing
+            p = multiprocessing.Process(target=show_mesh_process, args=(self.current_mesh,))
+            p.start()
+        else: self.st.setText("No mesh to preview.")
+
+    def set_mode(self, mode):
+        """Toggles between 'Smart Outline' and 'Scale Tool' interaction modes."""
+        smart = (mode == 'smart' and not self.view_front.grabcut_mode)
+        scale = (mode == 'scale' and not self.view_front.scale_mode)
+        for v in [self.view_front, self.view_side, self.view_top]: v.grabcut_mode = smart; v.scale_mode = scale
+        self.btn_smart.setStyleSheet("background-color: lightgreen;" if smart else "")
+        self.btn_scale.setStyleSheet("background-color: yellow; color: black;" if scale else "")
+
+    def set_calibration_scale(self, factor, title):
+        """Calculates world dimensions for all axes based on a single measured reference line."""
+        v = None
+        if title == "Front": v = self.view_front
+        elif title == "Side": v = self.view_side
+        elif title == "Top": v = self.view_top
+        if not v: return
+        
+        mask = v.get_mask_array()
+        if mask is not None and np.any(mask):
+            coords = np.argwhere(mask)
+            y0, x0 = coords.min(axis=0); y1, x1 = coords.max(axis=0) + 1
+            obj_h_px = y1 - y0; obj_w_px = x1 - x0
+        else: obj_h_px = v.image.height(); obj_w_px = v.image.width()
+
+        if title == "Front": self.edit_w.setText(f"{obj_w_px * factor:.2f}"); self.edit_h.setText(f"{obj_h_px * factor:.2f}")
+        elif title == "Side": self.edit_d.setText(f"{obj_w_px * factor:.2f}"); self.edit_h.setText(f"{obj_h_px * factor:.2f}")
+        elif title == "Top": self.edit_w.setText(f"{obj_w_px * factor:.2f}"); self.edit_d.setText(f"{obj_h_px * factor:.2f}")
+
+    def update_brush_mode(self):
+        """Synchronizes the brush interaction based on the radio button state."""
+        m = 0 if self.radio_keep.isChecked() else 1
+        for v in [self.view_front, self.view_side, self.view_top]: v.brush_mode = m
+        self.st.setText(f"Active Brush: {'KEEP (No Red)' if m==0 else 'REMOVE (Red)'}")
+
+    def ai_mask_all(self):
+        """Triggers AI background removal for all three image views."""
+        for v in [self.view_front, self.view_side, self.view_top]: v.ai_mask()
+
+    def refine_masks(self):
+        """Triggers mask refinement (morphology) for all three image views."""
+        for v in [self.view_front, self.view_side, self.view_top]: v.refine()
+
+    def clear_all_masks(self):
+        """Clears masks for all three image views."""
+        for v in [self.view_front, self.view_side, self.view_top]: v.clear_mask()
+
+    def undo_all(self):
+        """Triggers undo for all three image views."""
+        for v in [self.view_front, self.view_side, self.view_top]: v.undo()
+
+    def get_dim(self, text):
+        """Extracts numerical value from dimension input strings using regular expressions."""
+        m = re.search(r"[-+]?\d*\.\d+|\d+", text)
+        return float(m.group()) if m else 1.0
+
+    def generate_stl(self):
+        """Orchestrates the 3D carving process and mesh generation."""
+        from .mesh import SpaceCarver
+        w, h, d = self.get_dim(self.edit_w.text()), self.get_dim(self.edit_h.text()), self.get_dim(self.edit_d.text())
+        print(f"Generating for dims: {w}x{h}x{d}")
+        self.carver = SpaceCarver(res=self.res_slider.value(), dims=(w, d, h))
+        masks = {'front': self.view_front.get_mask_array(), 'side': self.view_side.get_mask_array(), 'top': self.view_top.get_mask_array()}
+        for a, m in masks.items():
+            if m is not None: self.carver.apply_mask(m, axis=a)
+        self.current_mesh = self.carver.generate_mesh(smooth=True)
+        if self.current_mesh:
+            ex = self.current_mesh.extents
+            if ex[0] > 0 and ex[1] > 0 and ex[2] > 0:
+                sx, sy, sz = w / ex[0], d / ex[1], h / ex[2]
+                self.current_mesh.apply_scale([sx, sy, sz])
+            self.btn_pre.setVisible(True); self.btn_gen.setText("Export STL")
+            self.btn_gen.clicked.disconnect(); self.btn_gen.clicked.connect(self.export_stl)
+            self.st.setText("Generated! Scale applies to export.")
+        else: self.st.setText("No mesh.")
+
+    def export_stl(self):
+        """Prompt for file save and export the generated mesh to STL format."""
+        if not self.current_mesh: return
+        p, _ = QFileDialog.getSaveFileName(self, "Save STL", "", "*.stl")
+        if p:
+            self.current_mesh.export(p); self.st.setText(f"Saved to {p}")
+            self.btn_gen.setText("Generate STL"); self.btn_gen.clicked.disconnect(); self.btn_gen.clicked.connect(self.generate_stl)
+
+def main():
+    """Application entry point."""
+    app = QApplication(sys.argv)
+    icon_path = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
+    if os.path.exists(icon_path): app.setWindowIcon(QIcon(icon_path))
+    w = Image23DPrintGUI(); w.show(); sys.exit(app.exec())

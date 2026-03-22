@@ -1,0 +1,8 @@
+{
+    "project_name": "image23dprint",
+    "primary_language": "python",
+    "features": {
+        "auto_load_skills": true,
+        "prefer_small_diffs": true
+    }
+}

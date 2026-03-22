@@ -1,0 +1,18 @@
+[project]
+name = "image23dprint"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fast-simplification>=0.1.13",
+    "numpy>=2.4.3",
+    "opencv-python>=4.13.0.92",
+    "pyglet<2",
+    "pyside6>=6.10.2",
+    "pytest>=9.0.2",
+    "rembg[cpu]>=2.0.73",
+    "scikit-image>=0.26.0",
+    "scipy>=1.17.1",
+    "trimesh>=4.11.4",
+]
