@@ -185,3 +185,113 @@ class AIRemovalWorker(BaseWorker):
             self.error.emit(f"AI background removal failed: {str(e)}")
         finally:
             self._is_running = False
+
+
+class MeshGenerationWorker(BaseWorker):
+    """
+    Worker for 3D mesh generation using space carving.
+
+    Performs volumetric space carving from multiple 2D masks and generates
+    a 3D mesh using marching cubes. Runs in a background thread to keep the
+    GUI responsive during the potentially long mesh generation process.
+
+    Signals:
+        progress: Emitted with (current, total, message) during processing
+        finished: Emitted with resulting trimesh.Trimesh object on success
+        error: Emitted with error message string on failure
+    """
+
+    def __init__(self, masks, dims, voxel_res=128, smooth=True, decimate=True, parent=None):
+        """
+        Initialize the mesh generation worker.
+
+        Args:
+            masks: Dictionary mapping axis names to (QImage mask, axis string) tuples
+                   e.g., {'front': (mask_qimage, 'front'), 'side': (mask_qimage, 'side')}
+            dims: Tuple of real-world dimensions (width, depth, height) in mm
+            voxel_res: Resolution of the longest voxel dimension (default: 128)
+            smooth: Whether to apply Laplacian smoothing to the mesh
+            decimate: Whether to decimate (simplify) the mesh
+            parent: Optional parent QObject for proper cleanup
+        """
+        super().__init__(parent)
+        self.masks = masks
+        self.dims = dims
+        self.voxel_res = voxel_res
+        self.smooth = smooth
+        self.decimate = decimate
+
+    def run(self):
+        """
+        Execute space carving and mesh generation.
+
+        Creates a SpaceCarver, applies each mask sequentially with progress
+        updates, then generates the final mesh with smoothing and decimation.
+        """
+        self._is_running = True
+        try:
+            # Import dependencies
+            from .mesh import SpaceCarver
+
+            # Calculate total steps for progress tracking
+            num_masks = len(self.masks)
+            total_steps = num_masks + 3  # masks + marching_cubes + smooth + decimate
+
+            # Step 1: Initialize space carver
+            self.progress.emit(0, 100, "Initializing voxel grid...")
+            carver = SpaceCarver(res=self.voxel_res, dims=self.dims)
+
+            # Check for cancellation
+            if self._should_stop:
+                return
+
+            # Step 2-N: Apply each mask
+            for idx, (name, (mask_qimage, axis)) in enumerate(self.masks.items(), start=1):
+                step_progress = int((idx / total_steps) * 100)
+                self.progress.emit(step_progress, 100, f"Carving {name} view...")
+
+                # Convert QImage mask to numpy array
+                qimg = mask_qimage.convertToFormat(QImage.Format_Grayscale8)
+                ptr = qimg.bits()
+                mask_arr = np.frombuffer(ptr, dtype=np.uint8).reshape(
+                    (qimg.height(), qimg.bytesPerLine())
+                )[:, :qimg.width()].copy()
+
+                # Apply mask to carver
+                carver.apply_mask(mask_arr, axis=axis)
+
+                # Check for cancellation
+                if self._should_stop:
+                    return
+
+            # Step N+1: Generate mesh with marching cubes
+            step_progress = int(((num_masks + 1) / total_steps) * 100)
+            self.progress.emit(step_progress, 100, "Extracting surface mesh...")
+
+            # Check for cancellation
+            if self._should_stop:
+                return
+
+            # Generate the mesh (this calls marching cubes internally)
+            mesh = carver.generate_mesh(
+                smooth=self.smooth,
+                decimate=self.decimate,
+                align_to_bed=True
+            )
+
+            if mesh is None:
+                self.error.emit("Mesh generation failed: no voxels remaining after carving")
+                return
+
+            # Check for cancellation
+            if self._should_stop:
+                return
+
+            # Final progress update
+            self.progress.emit(100, 100, f"Mesh complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
+            self.finished.emit(mesh)
+
+        except Exception as e:
+            self.error.emit(f"Mesh generation failed: {str(e)}")
+        finally:
+            self._is_running = False
