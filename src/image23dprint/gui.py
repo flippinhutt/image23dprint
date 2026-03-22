@@ -768,25 +768,39 @@ class Image23DPrintGUI(QMainWindow):
             self.mesh_worker = None
 
     def cancel_operation(self):
-        """Cancel any running worker operation."""
+        """Cancel any running worker operation and return UI to ready state."""
         cancelled = False
 
         # Try to stop mesh worker
         if hasattr(self, 'mesh_worker') and self.mesh_worker and self.mesh_worker.is_running():
             self.mesh_worker.stop()
-            self.st.setText("Operation cancelled")
+            self.mesh_worker.deleteLater()
+            self.mesh_worker = None
             cancelled = True
 
         # Try to stop thin 3D worker
         if hasattr(self, 'thin3d_worker') and self.thin3d_worker and self.thin3d_worker.is_running():
             self.thin3d_worker.stop()
-            self.st.setText("Operation cancelled")
+            self.thin3d_worker.deleteLater()
+            self.thin3d_worker = None
             cancelled = True
 
-        # Hide progress UI if something was cancelled
+        # Return UI to ready state if something was cancelled
         if cancelled:
+            # Hide progress UI
             self.progress_bar.setVisible(False)
             self.btn_cancel.setVisible(False)
+
+            # Reset generate button to initial state
+            self.btn_gen.setText("Generate STL")
+            try:
+                self.btn_gen.clicked.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            self.btn_gen.clicked.connect(self.generate_stl)
+
+            # Update status text
+            self.st.setText("Operation cancelled")
 
     def export_stl(self):
         """Prompt for file save and export the generated mesh to STL format."""

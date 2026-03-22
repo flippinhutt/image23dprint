@@ -128,24 +128,9 @@
     "zsh"
   ],
   "stack_commands": [
-    "ar",
-    "clang",
-    "clang++",
-    "cmake",
-    "g++",
-    "gcc",
     "ipython",
     "jupyter",
-    "ld",
-    "make",
-    "meson",
-    "ninja",
-    "nm",
-    "node",
     "notebook",
-    "npm",
-    "npx",
-    "objdump",
     "pdb",
     "pip",
     "pip3",
@@ -156,7 +141,6 @@
     "pytest",
     "python",
     "python3",
-    "strip",
     "uv",
     "uvx"
   ],
@@ -164,10 +148,7 @@
   "custom_commands": [],
   "detected_stack": {
     "languages": [
-      "python",
-      "javascript",
-      "c",
-      "cpp"
+      "python"
     ],
     "package_managers": [
       "uv"
@@ -190,8 +171,7 @@
     "cargo_aliases": [],
     "shell_scripts": []
   },
-  "project_dir": "/Users/ryanhutto/projects/image23dprint",
-  "created_at": "2026-03-21T21:13:29.574234",
-  "project_hash": "78927458f7c99f8e9b56616092d104bf",
-  "inherited_from": "/Users/ryanhutto/projects/image23dprint"
+  "project_dir": "/Users/ryanhutto/projects/image23dprint/.auto-claude/worktrees/tasks/001-async-processing-with-progress-ui",
+  "created_at": "2026-03-22T08:06:52.438150",
+  "project_hash": "e4b16762afefca20586bfc6aa92462ac"
 }

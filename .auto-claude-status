@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "003-ollama-llm-vision-integration",
-  "state": "planning",
+  "spec": "001-async-processing-with-progress-ui",
+  "state": "building",
   "subtasks": {
-    "completed": 0,
-    "total": 0,
+    "completed": 9,
+    "total": 14,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Ollama Client & Vision API",
+    "current": "Cancellation & Cleanup",
     "id": null,
-    "total": 4
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 2,
-    "started_at": "2026-03-21T21:28:32.209514"
+    "number": 11,
+    "started_at": "2026-03-22T08:06:39.683243"
   },
-  "last_update": "2026-03-21T21:32:53.058747"
+  "last_update": "2026-03-22T09:47:10.476603"
 }
