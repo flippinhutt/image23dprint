@@ -9,78 +9,46 @@ sys.path.insert(0, 'src')
 
 def test_ollama_client_import():
     """Test that OllamaClient can be imported."""
-    try:
-        from image23dprint.ollama_vision import OllamaClient
-        print("✅ OllamaClient import: OK")
-        return True
-    except Exception as e:
-        print(f"❌ OllamaClient import FAILED: {e}")
-        return False
+    from image23dprint.ollama_vision import OllamaClient
+    print("✅ OllamaClient import: OK")
 
 def test_ollama_availability():
     """Test Ollama availability check."""
-    try:
-        from image23dprint.ollama_vision import OllamaClient
-        ollama = OllamaClient()
-        available = ollama.is_available()
-        if available:
-            print("✅ Ollama is available and running")
-        else:
-            print("⚠️  Ollama is not available (expected if not installed)")
-        return True
-    except Exception as e:
-        print(f"❌ Ollama availability check FAILED: {e}")
-        return False
+    from image23dprint.ollama_vision import OllamaClient
+    ollama = OllamaClient()
+    available = ollama.is_available()
+    if available:
+        print("✅ Ollama is available and running")
+    else:
+        print("⚠️  Ollama is not available (expected if not installed)")
+    # No assertion - availability is informational, not a failure condition
 
 def test_gui_import():
     """Test that GUI can be imported."""
-    try:
-        from image23dprint.gui import Image23DPrintGUI
-        print("✅ GUI import: OK")
-        return True
-    except Exception as e:
-        print(f"❌ GUI import FAILED: {e}")
-        return False
+    from image23dprint.gui import Image23DPrintGUI
+    print("✅ GUI import: OK")
 
 def test_gui_has_ollama_methods():
     """Test that GUI has the expected Ollama-related methods."""
-    try:
-        from image23dprint.gui import Image23DPrintGUI
+    from image23dprint.gui import Image23DPrintGUI
 
-        # Check if the class has the expected method
-        if hasattr(Image23DPrintGUI, 'analyze_with_llm'):
-            print("✅ GUI has analyze_with_llm method")
-        else:
-            print("❌ GUI missing analyze_with_llm method")
-            return False
-
-        return True
-    except Exception as e:
-        print(f"❌ GUI method check FAILED: {e}")
-        return False
+    # Check if the class has the expected method
+    assert hasattr(Image23DPrintGUI, 'analyze_with_llm'), \
+        "GUI missing analyze_with_llm method"
+    print("✅ GUI has analyze_with_llm method")
 
 def test_maskable_label_warnings():
     """Test that MaskableImageLabel has quality warnings support."""
-    try:
-        from image23dprint.gui import MaskableImageLabel
+    from image23dprint.widgets import MaskableImageLabel
 
-        # Check if the class has the expected methods (no instantiation needed)
-        if hasattr(MaskableImageLabel, 'set_quality_warnings'):
-            print("✅ MaskableImageLabel has set_quality_warnings method")
-        else:
-            print("❌ MaskableImageLabel missing set_quality_warnings method")
-            return False
+    # Check if the class has the expected methods (no instantiation needed)
+    assert hasattr(MaskableImageLabel, 'set_quality_warnings'), \
+        "MaskableImageLabel missing set_quality_warnings method"
+    print("✅ MaskableImageLabel has set_quality_warnings method")
 
-        if hasattr(MaskableImageLabel, 'update_border_style'):
-            print("✅ MaskableImageLabel has update_border_style method")
-        else:
-            print("❌ MaskableImageLabel missing update_border_style method")
-            return False
-
-        return True
-    except Exception as e:
-        print(f"❌ MaskableImageLabel check FAILED: {e}")
-        return False
+    assert hasattr(MaskableImageLabel, 'update_border_style'), \
+        "MaskableImageLabel missing update_border_style method"
+    print("✅ MaskableImageLabel has update_border_style method")
 
 def main():
     """Run all integration verification tests."""
@@ -89,27 +57,27 @@ def main():
     print("=" * 60)
     print()
 
+    tests = [
+        ("1. Testing OllamaClient module...", test_ollama_client_import),
+        ("2. Testing Ollama availability...", test_ollama_availability),
+        ("3. Testing GUI import...", test_gui_import),
+        ("4. Testing GUI Ollama integration...", test_gui_has_ollama_methods),
+        ("5. Testing visual warning indicators...", test_maskable_label_warnings),
+    ]
+
     results = []
-
-    print("1. Testing OllamaClient module...")
-    results.append(test_ollama_client_import())
-    print()
-
-    print("2. Testing Ollama availability...")
-    results.append(test_ollama_availability())
-    print()
-
-    print("3. Testing GUI import...")
-    results.append(test_gui_import())
-    print()
-
-    print("4. Testing GUI Ollama integration...")
-    results.append(test_gui_has_ollama_methods())
-    print()
-
-    print("5. Testing visual warning indicators...")
-    results.append(test_maskable_label_warnings())
-    print()
+    for description, test_func in tests:
+        print(description)
+        try:
+            test_func()
+            results.append(True)
+        except AssertionError as e:
+            print(f"   Assertion failed: {e}")
+            results.append(False)
+        except Exception as e:
+            print(f"   Test failed with error: {e}")
+            results.append(False)
+        print()
 
     print("=" * 60)
     if all(results):

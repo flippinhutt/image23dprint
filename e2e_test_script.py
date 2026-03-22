@@ -157,7 +157,8 @@ def test_gui_integration_check():
     print("="*60)
 
     try:
-        from image23dprint.gui import Image23DPrintGUI, MaskableImageLabel
+        from image23dprint.gui import Image23DPrintGUI
+        from image23dprint.widgets import MaskableImageLabel
 
         # Check class-level attributes and methods
         checks = [

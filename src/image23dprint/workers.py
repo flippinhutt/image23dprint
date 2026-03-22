@@ -230,37 +230,37 @@ class MeshGenerationWorker(BaseWorker):
         """
         Execute space carving and mesh generation.
 
-        Creates a SpaceCarver, applies each mask sequentially with progress
-        updates, then generates the final mesh with smoothing and decimation.
+        Uses ProcessingPipeline to orchestrate the complete workflow from
+        masks to final mesh with smoothing and decimation.
         """
         self._is_running = True
         try:
             # Import dependencies
-            from .mesh import SpaceCarver
+            from .processor import ProcessingPipeline, PipelineConfig
+            from .mesh import CancelledException as MeshCancelledException
 
             # Create a progress callback that checks for cancellation
             def progress_callback(current, total, message):
                 if self._should_stop:
-                    raise CancelledException("Operation cancelled by user")
+                    raise MeshCancelledException("Operation cancelled by user")
                 self.progress.emit(current, total, message)
 
-            # Calculate total steps for progress tracking
-            num_masks = len(self.masks)
-            total_steps = num_masks + 3  # masks + marching_cubes + smooth + decimate
-
-            # Step 1: Initialize space carver
-            self.progress.emit(0, 100, "Initializing voxel grid...")
-            carver = SpaceCarver(res=self.voxel_res, dims=self.dims)
+            # Initialize processing pipeline with configuration
+            config = PipelineConfig(
+                resolution=self.voxel_res,
+                dimensions=self.dims,
+                smooth_mesh=self.smooth,
+                decimate_mesh=self.decimate,
+                align_to_bed=True
+            )
+            pipeline = ProcessingPipeline(config)
 
             # Check for cancellation
             if self._should_stop:
                 return
 
-            # Step 2-N: Apply each mask
-            for idx, (name, (mask_qimage, axis)) in enumerate(self.masks.items(), start=1):
-                step_progress = int((idx / total_steps) * 100)
-                self.progress.emit(step_progress, 100, f"Carving space from {name} view...")
-
+            # Set masks on the pipeline
+            for name, (mask_qimage, axis) in self.masks.items():
                 # Convert QImage mask to numpy array
                 qimg = mask_qimage.convertToFormat(QImage.Format_Grayscale8)
                 ptr = qimg.bits()
@@ -268,32 +268,15 @@ class MeshGenerationWorker(BaseWorker):
                     (qimg.height(), qimg.bytesPerLine())
                 )[:, :qimg.width()].copy()
 
-                # Check for cancellation
-                if self._should_stop:
-                    return
-
-                # Apply mask to carver with cancellation-aware callback
-                carver.apply_mask(mask_arr, axis=axis, progress_callback=progress_callback)
+                # Set the mask on the pipeline
+                pipeline.set_mask(axis, mask_arr)
 
                 # Check for cancellation
                 if self._should_stop:
                     return
 
-            # Step N+1: Generate mesh with marching cubes
-            step_progress = int(((num_masks + 1) / total_steps) * 100)
-            self.progress.emit(step_progress, 100, "Generating mesh from carved voxels...")
-
-            # Check for cancellation
-            if self._should_stop:
-                return
-
-            # Generate the mesh (this calls marching cubes internally)
-            mesh = carver.generate_mesh(
-                smooth=self.smooth,
-                decimate=self.decimate,
-                align_to_bed=True,
-                progress_callback=progress_callback
-            )
+            # Process full 3D reconstruction
+            mesh = pipeline.process_full_3d(progress_callback=progress_callback)
 
             if mesh is None:
                 self.error.emit("Mesh generation failed: no voxels remaining after carving")
@@ -307,10 +290,12 @@ class MeshGenerationWorker(BaseWorker):
             self.progress.emit(100, 100, f"Mesh generation complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
             self.finished.emit(mesh)
 
-        except CancelledException:
-            # Operation was cancelled - exit cleanly without error
-            return
-        except Exception as e:
+        except (CancelledException, Exception) as e:
+            # Check if it's a cancellation
+            if isinstance(e, CancelledException) or "cancelled" in str(e).lower():
+                # Operation was cancelled - exit cleanly without error
+                return
+            # Otherwise emit error
             self.error.emit(f"Mesh generation failed: {str(e)}")
         finally:
             self._is_running = False
@@ -348,35 +333,35 @@ class Thin3DWorker(BaseWorker):
         """
         Execute thin 3D mesh generation.
 
-        Creates a SpaceCarver and generates a thin 3D mesh by extruding
+        Uses ProcessingPipeline to generate a thin 3D mesh by extruding
         the 2D mask to a constant thickness.
         """
         self._is_running = True
         try:
             # Import dependencies
-            from .mesh import SpaceCarver
+            from .processor import ProcessingPipeline, PipelineConfig
+            from .mesh import CancelledException as MeshCancelledException
 
             # Create a progress callback that checks for cancellation
             def progress_callback(current, total, message):
                 if self._should_stop:
-                    raise CancelledException("Operation cancelled by user")
+                    raise MeshCancelledException("Operation cancelled by user")
                 self.progress.emit(current, total, message)
 
-            # Emit initial progress
-            self.progress.emit(0, 100, "Initializing thin 3D generation...")
-
-            # Create dummy carver to access the method
-            carver = SpaceCarver(res=64)
+            # Initialize processing pipeline with configuration for thin 3D
+            config = PipelineConfig(
+                thin_3d_thickness=self.thickness_mm,
+                scale_factor=self.scale_factor
+            )
+            pipeline = ProcessingPipeline(config)
 
             # Check for cancellation
             if self._should_stop:
                 return
 
             # Generate the thin 3D mesh
-            mesh = carver.generate_thin_3d(
-                self.mask_array,
-                thickness_mm=self.thickness_mm,
-                scale_factor=self.scale_factor,
+            mesh = pipeline.process_thin_3d(
+                mask=self.mask_array,
                 progress_callback=progress_callback
             )
 
@@ -392,10 +377,12 @@ class Thin3DWorker(BaseWorker):
             self.progress.emit(100, 100, f"Thin 3D generation complete: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
             self.finished.emit(mesh)
 
-        except CancelledException:
-            # Operation was cancelled - exit cleanly without error
-            return
-        except Exception as e:
+        except (CancelledException, Exception) as e:
+            # Check if it's a cancellation
+            if isinstance(e, CancelledException) or "cancelled" in str(e).lower():
+                # Operation was cancelled - exit cleanly without error
+                return
+            # Otherwise emit error
             self.error.emit(f"Thin 3D generation failed: {str(e)}")
         finally:
             self._is_running = False
