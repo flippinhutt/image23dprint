@@ -1,27 +1,10 @@
-"""
-Image23DPrint GUI application.
-
-This module provides the main entry point for the GUI application.
-The actual implementation has been modularized into separate packages:
-- widgets: Reusable UI components (MaskableImageLabel)
-- ui: Main application window (Image23DPrintGUI)
-"""
+"""Image23DPrint GUI application entry point."""
 import sys
 import os
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 
-# Import modular components
-from .widgets import MaskableImageLabel
 from .ui import Image23DPrintGUI
-
-# Re-export for backward compatibility
-__all__ = ['MaskableImageLabel', 'Image23DPrintGUI', 'main', 'show_mesh_process']
-
-
-def show_mesh_process(mesh):
-    """Entry point for parallel 3D viewer process to prevent main UI blocking."""
-    mesh.show(resolution=(800, 600))
 
 
 def main():
