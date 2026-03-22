@@ -43,3 +43,6 @@ uv.lock
 *.png
 !src/image23dprint/assets/icon.png
 !docs/images/*.png
+
+# Auto Claude data directory
+.auto-claude/
