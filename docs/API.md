@@ -12,6 +12,7 @@ The core engine for 3D reconstruction using Voxel Carving.
 | `__init__` | `res`, `dims` | Initializes the voxel grid with target proportions. |
 | `apply_mask` | `mask_img`, `axis` | Projects a 2D mask onto the grid and carves voxels. |
 | `generate_mesh` | `smooth`, `decimate`, `align_to_bed` | Extracts an STL mesh using Marching Cubes. |
+| `generate_thin_3d`| `mask_img`, `thickness_mm`, `scale_factor` | Generates a constant-thickness 3D mesh from a single 2D mask. |
 
 ---
 
@@ -23,6 +24,7 @@ Interactive QLabel for image masking and calibration.
 | Method | Description |
 |---|---|
 | `ai_mask()` | Uses `rembg` (ISNet) to auto-generate a foreground mask. |
+| `edge_mask()` | Uses Canny edge detection and hole filling for high-contrast objects. |
 | `auto_mask()` | Fallback OpenCV threshold-based masking. |
 | `run_grabcut()` | Applies GrabCut within a user-selected rectangle. |
 | `undo()` | Reverts the last mask modification using a local history stack. |

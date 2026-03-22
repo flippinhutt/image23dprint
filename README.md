@@ -10,7 +10,8 @@ Designed for hobbyists, engineers, and creators, it allows you to generate a 3D 
 
 - 🧠 **AI-Powered Masking**: Utilizes `rembg` (ISNet) to automatically isolate objects from complex backgrounds.
 - 📐 **Precision Scaling**: Built-in calibration tool to set real-world dimensions (mm) from a simple reference line.
-- 🖥️ **Interactive Refinement**: Manual brush tools, "Smart Outline" (GrabCut), and morphological refinement to perfect your masks.
+- 🖼️ **2D-to-Thin-3D**: Instantly generate a constant-thickness 3D layer from a single image (perfect for signs and lithophanes).
+- 🖥️ **Interactive Refinement**: Manual brush tools, "Edge Mask" (Canny), "Smart Outline" (GrabCut), and morphological refinement to perfect your masks.
 - 🧊 **Proportional Carving**: Supports non-cubic voxel grids to ensure tall or wide objects aren't distorted.
 - ⚡ **Optimized Mesh**: Automatic Laplacian smoothing and Quadric Decimation for clean, lightweight STL files.
 - 🖨️ **Print Ready**: Auto-bed alignment ensures the generated model's base sits perfectly at Z=0.
@@ -85,7 +86,7 @@ We are actively developing and looking for contributors!
 - [ ] **Ollama Support**: Integrate local LLM vision for scene analysis and prompt-based mesh generation.
 - [ ] **Extended AI Support**: Support for additional vision models (Segment Anything, etc.).
 - [ ] **Improved Image Recognition**: Enhanced edge detection for fine-grained object features.
-- [ ] **2D-to-Thin-3D**: Allow generating a 3D layer with adjustable thickness from a single 2D image.
+- [x] **2D-to-Thin-3D**: Allow generating a 3D layer with adjustable thickness from a single 2D image.
 - [ ] **Poisson Surface Reconstruction**: For perfectly watertight, high-poly 3D models.
 
 ---

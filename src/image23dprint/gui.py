@@ -191,6 +191,39 @@ class MaskableImageLabel(QLabel):
         self.mask = QImage(m.data, m.shape[1], m.shape[0], m.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
         self.update_display()
 
+    def edge_mask(self):
+        """Generates a mask using Canny edge detection and hole filling."""
+        if not self.image:
+            return
+        self.save_state()
+        print(f"Edge Masking {self.title} with Canny...")
+        q = self.image.toImage().convertToFormat(QImage.Format_Grayscale8)
+        a = np.frombuffer(q.bits(), dtype=np.uint8).reshape((q.height(), q.bytesPerLine()))[:, :q.width()]
+        
+        # 1. Blur and Canny
+        b = cv2.GaussianBlur(a, (5, 5), 0)
+        edges = cv2.Canny(b, 50, 150)
+        
+        # 2. Dilate to connect edges
+        k = np.ones((5, 5), np.uint8)
+        m = cv2.dilate(edges, k, iterations=2)
+        
+        # 3. Fill holes using morphology
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k, iterations=3)
+        
+        # 4. Optional: floodFill to fill inner areas if the object container is closed
+        h, w = m.shape
+        mask_flood = np.zeros((h+2, w+2), np.uint8)
+        # We assume edges are NOT at the very boundary for floodFill to work from origin 
+        # (Though this isn't always true, it's a common heuristic for object isolated photos)
+        m_filled = m.copy()
+        cv2.floodFill(m_filled, mask_flood, (0, 0), 255)
+        m_filled = cv2.bitwise_not(m_filled)
+        m = cv2.bitwise_or(m, m_filled)
+
+        self.mask = QImage(m.data, m.shape[1], m.shape[0], m.strides[0], QImage.Format_Grayscale8).convertToFormat(QImage.Format_Mono).copy()
+        self.update_display()
+
     def run_grabcut(self):
         """Applies OpenCV GrabCut algorithm within the selected bounding box."""
         if not self.image or not self.rect_start:
@@ -284,6 +317,9 @@ class Image23DPrintGUI(QMainWindow):
         cl.addLayout(bl)
         self.btn_ai = QPushButton("AI Auto-Mask")
         self.btn_ai.clicked.connect(self.ai_mask_all)
+        self.btn_edge = QPushButton("Edge Mask")
+        self.btn_edge.setToolTip("Use Canny Edge Detection for high-contrast objects")
+        self.btn_edge.clicked.connect(self.edge_mask_all)
         self.btn_smart = QPushButton("Smart Outline")
         self.btn_smart.clicked.connect(lambda: self.set_mode('smart'))
         self.btn_scale = QPushButton("Scale Tool")
@@ -296,10 +332,13 @@ class Image23DPrintGUI(QMainWindow):
         self.btn_clr.clicked.connect(self.clear_all_masks)
         self.btn_gen = QPushButton("Generate STL")
         self.btn_gen.clicked.connect(self.generate_stl)
+        self.btn_2d3d = QPushButton("2D to 3D")
+        self.btn_2d3d.setToolTip("Generate a thin 3D model from a single 2D mask (Front)")
+        self.btn_2d3d.clicked.connect(self.generate_2d3d)
         self.btn_pre = QPushButton("Preview 3D")
         self.btn_pre.clicked.connect(self.preview_3d)
         self.btn_pre.setVisible(False)
-        for b in [self.btn_ai, self.btn_smart, self.btn_refine, self.btn_scale, self.btn_undo, self.btn_clr, self.btn_gen, self.btn_pre]:
+        for b in [self.btn_ai, self.btn_edge, self.btn_smart, self.btn_refine, self.btn_scale, self.btn_undo, self.btn_clr, self.btn_gen, self.btn_2d3d, self.btn_pre]:
             bl.addWidget(b)
         gl = QHBoxLayout()
         cl.addLayout(gl)
@@ -376,6 +415,11 @@ class Image23DPrintGUI(QMainWindow):
         for v in [self.view_front, self.view_side, self.view_top]:
             v.ai_mask()
 
+    def edge_mask_all(self):
+        """Triggers local edge detection (Canny) for all three image views."""
+        for v in [self.view_front, self.view_side, self.view_top]:
+            v.edge_mask()
+
     def refine_masks(self):
         """Triggers mask refinement (morphology) for all three image views."""
         for v in [self.view_front, self.view_side, self.view_top]:
@@ -431,6 +475,39 @@ class Image23DPrintGUI(QMainWindow):
             self.btn_gen.setText("Generate STL")
             self.btn_gen.clicked.disconnect()
             self.btn_gen.clicked.connect(self.generate_stl)
+
+    def generate_2d3d(self):
+        """Generates a thin 3D mesh from the front mask."""
+        from .mesh import SpaceCarver
+        m = self.view_front.get_mask_array()
+        if m is None:
+            self.st.setText("Error: Load 'Front' image and mask it first!")
+            return
+        
+        # Determine scale factor (mm per pixel)
+        # Use the width dimension if set, else default to 1mm/px
+        w_mm = self.get_dim(self.edit_w.text())
+        coords = np.argwhere(m)
+        if coords.size > 0:
+            px_w = coords.max(axis=0)[1] - coords.min(axis=0)[1]
+            scale = w_mm / px_w if px_w > 0 else 1.0
+        else:
+            scale = 1.0
+            
+        carver = SpaceCarver(res=64) # Dummy carver to access the method
+        self.current_mesh = carver.generate_thin_3d(m, thickness_mm=2.5, scale_factor=scale)
+        
+        if self.current_mesh:
+            self.btn_pre.setVisible(True)
+            self.btn_gen.setText("Export STL")
+            try:
+                self.btn_gen.clicked.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            self.btn_gen.clicked.connect(self.export_stl)
+            self.st.setText("Thin 3D Generated!")
+        else:
+            self.st.setText("Failed to generate Thin 3D.")
 
 def main():
     """Application entry point."""

@@ -103,3 +103,55 @@ class SpaceCarver:
             mesh.apply_translation([0, 0, -mesh.bounds[0][2]])
             
         return mesh
+
+    def generate_thin_3d(self, mask_img, thickness_mm=2.0, scale_factor=1.0):
+        """
+        Generates a constant-thickness 3D mesh from a single 2D binary mask.
+        (The '2D to Thin 3D' roadmap feature)
+
+        Args:
+            mask_img (np.ndarray): Binary mask image (True/False or 0/255).
+            thickness_mm (float): The target extrusion thickness in real-world units.
+            scale_factor (float): Pixels-to-mm conversion factor.
+
+        Returns:
+            trimesh.Trimesh: The extruded 3D mesh.
+        """
+        if mask_img is None or not np.any(mask_img):
+            return None
+
+        # 1. Clean mask and find contours
+        m = (mask_img > 0).astype(np.uint8) * 255
+        # Use simple extrusion via a voxel layer or direct trimesh creation
+        # For 'Thin 3D', we can create a 2nd layer of the mask at a Z offset
+        
+        # Calculate voxel-space thickness
+        vox_thickness = max(1, int(thickness_mm / scale_factor))
+        
+        # Create a temporary voxel grid for just this extrusion
+        h, w = m.shape
+        grid = np.zeros((w, vox_thickness, h), dtype=bool)
+        
+        # Resize mask to fit a reasonable grid if too large, but here we'll just use it
+        # Actually, let's just use the mesh.apply_mask logic's style
+        mask_resized = (m > 127).T # (W, H)
+        for y in range(vox_thickness):
+            grid[:, y, :] = mask_resized
+            
+        # extract mesh
+        padded = np.pad(grid, 1, mode='constant', constant_values=0)
+        verts, faces, normals, _ = measure.marching_cubes(padded, level=0.5)
+        verts -= 1
+        
+        mesh = trimesh.Trimesh(vertices=verts, faces=faces, vertex_normals=normals)
+        
+        # Apply real-world scaling
+        # extents are [W, thickness, H] in voxel units
+        mesh.apply_scale([scale_factor, scale_factor, scale_factor])
+        
+        # Ensure base is at Z=0 (actually Y is the 'thickness' direction in our grid above)
+        # But for STL export, customers usually want height to be Z.
+        # Let's rotate it so it lies flat.
+        mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi/2, [1, 0, 0]))
+        
+        return mesh

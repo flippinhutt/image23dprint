@@ -28,6 +28,11 @@ Because we already set up `ci.yml`, GitHub will now show a green checkmark ✅ o
 
 ---
 
+## 5. Pull Request Template
+A standard template is located at `.github/PULL_REQUEST_TEMPLATE.md`. Use this to document your changes, testing methodology, and ensure all checklist items are met before submission.
+
+---
+
 ## 🚀 Final Pre-Push Checklist
 - [x] `.gitignore` is present (prevents pushing `.venv` or temporary STL files).
 - [x] `README.md` and `docs/` are up to date.

@@ -9,6 +9,7 @@ Image23DPrint uses a **Volumetric Space Carving** approach to reconstruct 3D geo
 4.  **Mesh Extraction**: The `skimage.measure.marching_cubes` algorithm extracts a surface mesh from the remaining voxels.
 5.  **Refinement**: The resulting mesh undergoes Laplacian smoothing and Quadratic Decimation using `fast-simplification`.
 6.  **Alignment**: The mesh is automatically translated to sit at Z=0 for immediate 3D printing.
+7.  **Thin 3D Extrusion**: A specialized mode that bypasses voxel carving from multiple views, instead extruding a single 2D silhouette into a specific millimeter thickness.
 
 ## Key Components
 - `gui.py`: PySide6 interface for image management, interactive masking (GrabCut), and real-time undo history.
