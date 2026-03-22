@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QProgressBar)
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
+from .workers import MeshGenerationWorker
 
 class MaskableImageLabel(QLabel):
     """
@@ -361,6 +362,8 @@ class Image23DPrintGUI(QMainWindow):
             self.setWindowIcon(QIcon(icon_path))
         self.carver = None
         self.current_mesh = None
+        self.mesh_worker = None
+        self.pending_dims = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -631,28 +634,136 @@ class Image23DPrintGUI(QMainWindow):
         return float(m.group()) if m else 1.0
 
     def generate_stl(self):
-        """Orchestrates the 3D carving process and mesh generation."""
-        from .mesh import SpaceCarver
+        """Orchestrates the 3D carving process and mesh generation using async worker."""
+        # Get dimensions
         w, h, d = self.get_dim(self.edit_w.text()), self.get_dim(self.edit_h.text()), self.get_dim(self.edit_d.text())
         print(f"Generating for dims: {w}x{h}x{d}")
-        self.carver = SpaceCarver(res=self.res_slider.value(), dims=(w, d, h))
-        masks = {'front': self.view_front.get_mask_array(), 'side': self.view_side.get_mask_array(), 'top': self.view_top.get_mask_array()}
-        for a, m in masks.items():
-            if m is not None:
-                self.carver.apply_mask(m, axis=a)
-        self.current_mesh = self.carver.generate_mesh(smooth=True)
+
+        # Prepare masks in the format MeshGenerationWorker expects
+        # Dictionary mapping names to (mask_qimage, axis) tuples
+        masks = {}
+
+        # Front view
+        front_mask_arr = self.view_front.get_mask_array()
+        if front_mask_arr is not None:
+            # Convert numpy array back to QImage
+            front_mask_uint8 = (front_mask_arr > 0).astype(np.uint8) * 255
+            front_qimage = QImage(
+                front_mask_uint8.data,
+                front_mask_uint8.shape[1],
+                front_mask_uint8.shape[0],
+                front_mask_uint8.strides[0],
+                QImage.Format_Grayscale8
+            ).copy()
+            masks['front'] = (front_qimage, 'front')
+
+        # Side view
+        side_mask_arr = self.view_side.get_mask_array()
+        if side_mask_arr is not None:
+            side_mask_uint8 = (side_mask_arr > 0).astype(np.uint8) * 255
+            side_qimage = QImage(
+                side_mask_uint8.data,
+                side_mask_uint8.shape[1],
+                side_mask_uint8.shape[0],
+                side_mask_uint8.strides[0],
+                QImage.Format_Grayscale8
+            ).copy()
+            masks['side'] = (side_qimage, 'side')
+
+        # Top view
+        top_mask_arr = self.view_top.get_mask_array()
+        if top_mask_arr is not None:
+            top_mask_uint8 = (top_mask_arr > 0).astype(np.uint8) * 255
+            top_qimage = QImage(
+                top_mask_uint8.data,
+                top_mask_uint8.shape[1],
+                top_mask_uint8.shape[0],
+                top_mask_uint8.strides[0],
+                QImage.Format_Grayscale8
+            ).copy()
+            masks['top'] = (top_qimage, 'top')
+
+        if not masks:
+            self.st.setText("Error: No masks available. Please load and mask images first.")
+            return
+
+        # Show progress UI
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.btn_cancel.setVisible(True)
+        self.st.setText("Starting mesh generation...")
+
+        # Store dimensions for scaling after generation
+        self.pending_dims = (w, h, d)
+
+        # Create worker
+        self.mesh_worker = MeshGenerationWorker(
+            masks=masks,
+            dims=(w, d, h),  # (width, depth, height)
+            voxel_res=self.res_slider.value(),
+            smooth=True,
+            decimate=True
+        )
+
+        # Connect signals
+        self.mesh_worker.progress.connect(self.on_mesh_progress)
+        self.mesh_worker.finished.connect(self.on_mesh_finished)
+        self.mesh_worker.error.connect(self.on_mesh_error)
+
+        # Start worker
+        self.mesh_worker.start()
+
+    def on_mesh_progress(self, current, total, message):
+        """Handle progress updates from mesh generation worker."""
+        self.progress_bar.setValue(current)
+        self.st.setText(message)
+
+    def on_mesh_finished(self, mesh):
+        """Handle successful mesh generation completion."""
+        # Hide progress UI
+        self.progress_bar.setVisible(False)
+        self.btn_cancel.setVisible(False)
+
+        # Store the mesh
+        self.current_mesh = mesh
+
         if self.current_mesh:
+            # Apply scaling to match real-world dimensions
+            w, h, d = self.pending_dims
             ex = self.current_mesh.extents
             if ex[0] > 0 and ex[1] > 0 and ex[2] > 0:
                 sx, sy, sz = w / ex[0], d / ex[1], h / ex[2]
                 self.current_mesh.apply_scale([sx, sy, sz])
+
+            # Update UI
             self.btn_pre.setVisible(True)
             self.btn_gen.setText("Export STL")
-            self.btn_gen.clicked.disconnect()
+            try:
+                self.btn_gen.clicked.disconnect()
+            except (RuntimeError, TypeError):
+                pass
             self.btn_gen.clicked.connect(self.export_stl)
             self.st.setText("Generated! Scale applies to export.")
         else:
-            self.st.setText("No mesh.")
+            self.st.setText("No mesh generated.")
+
+        # Clean up worker
+        self.mesh_worker.deleteLater()
+        self.mesh_worker = None
+
+    def on_mesh_error(self, error_message):
+        """Handle mesh generation errors."""
+        # Hide progress UI
+        self.progress_bar.setVisible(False)
+        self.btn_cancel.setVisible(False)
+
+        # Show error
+        self.st.setText(f"Error: {error_message}")
+
+        # Clean up worker
+        if hasattr(self, 'mesh_worker') and self.mesh_worker:
+            self.mesh_worker.deleteLater()
+            self.mesh_worker = None
 
     def export_stl(self):
         """Prompt for file save and export the generated mesh to STL format."""
