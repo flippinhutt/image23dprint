@@ -8,7 +8,7 @@ reporting and error handling.
 """
 
 import numpy as np
-from typing import Dict, Optional, Tuple, Callable
+from typing import Dict, Optional, Tuple, Callable, Any
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -298,7 +298,7 @@ class ProcessingPipeline:
                 progress_callback(0, 100, "Processing cancelled")
             raise
 
-    def get_voxel_stats(self) -> Dict[str, any]:
+    def get_voxel_stats(self) -> Dict[str, Any]:
         """
         Get statistics about the current voxel grid state.
 
