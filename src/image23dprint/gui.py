@@ -1,6 +1,7 @@
 import sys
 import os
 import re
+import time
 import numpy as np
 import cv2
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
@@ -365,6 +366,7 @@ class Image23DPrintGUI(QMainWindow):
         self.mesh_worker = None
         self.thin3d_worker = None
         self.pending_dims = None
+        self.operation_start_time = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -712,12 +714,26 @@ class Image23DPrintGUI(QMainWindow):
         self.mesh_worker.finished.connect(self.on_mesh_finished)
         self.mesh_worker.error.connect(self.on_mesh_error)
 
+        # Track start time for ETA calculation
+        self.operation_start_time = time.time()
+
         # Start worker
         self.mesh_worker.start()
 
     def on_mesh_progress(self, current, total, message):
         """Handle progress updates from mesh generation worker."""
         self.progress_bar.setValue(current)
+
+        # Calculate and display ETA
+        if self.operation_start_time is not None and current > 0 and total > 0:
+            elapsed = time.time() - self.operation_start_time
+            progress_percent = current / total
+            if progress_percent > 0.01:  # Only show ETA after 1% progress
+                estimated_total_time = elapsed / progress_percent
+                remaining = estimated_total_time - elapsed
+                if remaining > 0:
+                    message = f"{message} (~{int(remaining)}s remaining)"
+
         self.st.setText(message)
 
     def on_mesh_finished(self, mesh):
@@ -725,6 +741,7 @@ class Image23DPrintGUI(QMainWindow):
         # Hide progress UI
         self.progress_bar.setVisible(False)
         self.btn_cancel.setVisible(False)
+        self.operation_start_time = None
 
         # Store the mesh
         self.current_mesh = mesh
@@ -759,6 +776,7 @@ class Image23DPrintGUI(QMainWindow):
         # Hide progress UI
         self.progress_bar.setVisible(False)
         self.btn_cancel.setVisible(False)
+        self.operation_start_time = None
 
         # Show error
         self.st.setText(f"Error: {error_message}")
@@ -791,6 +809,7 @@ class Image23DPrintGUI(QMainWindow):
             # Hide progress UI
             self.progress_bar.setVisible(False)
             self.btn_cancel.setVisible(False)
+            self.operation_start_time = None
 
             # Reset generate button to initial state
             self.btn_gen.setText("Generate STL")
@@ -850,12 +869,26 @@ class Image23DPrintGUI(QMainWindow):
         self.thin3d_worker.finished.connect(self.on_thin3d_finished)
         self.thin3d_worker.error.connect(self.on_thin3d_error)
 
+        # Track start time for ETA calculation
+        self.operation_start_time = time.time()
+
         # Start worker
         self.thin3d_worker.start()
 
     def on_thin3d_progress(self, current, total, message):
         """Handle progress updates from thin 3D generation worker."""
         self.progress_bar.setValue(current)
+
+        # Calculate and display ETA
+        if self.operation_start_time is not None and current > 0 and total > 0:
+            elapsed = time.time() - self.operation_start_time
+            progress_percent = current / total
+            if progress_percent > 0.01:  # Only show ETA after 1% progress
+                estimated_total_time = elapsed / progress_percent
+                remaining = estimated_total_time - elapsed
+                if remaining > 0:
+                    message = f"{message} (~{int(remaining)}s remaining)"
+
         self.st.setText(message)
 
     def on_thin3d_finished(self, mesh):
@@ -863,6 +896,7 @@ class Image23DPrintGUI(QMainWindow):
         # Hide progress UI
         self.progress_bar.setVisible(False)
         self.btn_cancel.setVisible(False)
+        self.operation_start_time = None
 
         # Store the mesh
         self.current_mesh = mesh
@@ -889,6 +923,7 @@ class Image23DPrintGUI(QMainWindow):
         # Hide progress UI
         self.progress_bar.setVisible(False)
         self.btn_cancel.setVisible(False)
+        self.operation_start_time = None
 
         # Show error message
         self.st.setText(f"Error: {error_message}")
