@@ -16,3 +16,9 @@ dependencies = [
     "scipy>=1.17.1",
     "trimesh>=4.11.4",
 ]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.9.4",
+    "ruff>=0.15.7",
+]
