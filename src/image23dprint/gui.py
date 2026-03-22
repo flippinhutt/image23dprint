@@ -3,10 +3,10 @@ import os
 import re
 import numpy as np
 import cv2
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QPushButton, QLabel, QFileDialog, 
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QLabel, QFileDialog,
                              QSlider, QGroupBox, QInputDialog, QLineEdit, QRadioButton)
-from PySide6.QtCore import Qt, QPoint, QRect
+from PySide6.QtCore import Qt, QPoint, QRect, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
 
 class MaskableImageLabel(QLabel):
@@ -34,6 +34,7 @@ class MaskableImageLabel(QLabel):
         self.scale_line = None
         self.rect_start = self.rect_end = None
         self.history = []
+        self.quality_warnings = []
 
     def save_state(self):
         """Save current mask state to the undo history stack."""
@@ -47,6 +48,23 @@ class MaskableImageLabel(QLabel):
         if self.history:
             self.mask = self.history.pop()
             self.update_display()
+
+    def set_quality_warnings(self, warnings):
+        """Set quality warnings and update visual indicators."""
+        self.quality_warnings = warnings if warnings else []
+        self.update_border_style()
+
+    def update_border_style(self):
+        """Update the border style based on quality warnings."""
+        if self.quality_warnings:
+            self.setStyleSheet("border: 3px solid #ff9800; background-color: #fff3e0;")
+            self.setToolTip(f"⚠️ Quality Issues:\n" + "\n".join(f"• {w}" for w in self.quality_warnings))
+        elif self.image:
+            self.setStyleSheet("border: 2px solid #4caf50;")
+            self.setToolTip("")
+        else:
+            self.setStyleSheet("border: 2px dashed #aaa;")
+            self.setToolTip("")
     def _map_to_image(self, pos):
         """Maps a mouse position on the QLabel to its corresponding pixel in the underlying image."""
         if self.image is None:
@@ -122,7 +140,19 @@ class MaskableImageLabel(QLabel):
             self.image = pix.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.mask = QImage(self.image.size(), QImage.Format_Mono)
             self.mask.fill(Qt.color1)
+            self.quality_warnings = []
+            self.update_border_style()
             self.update_display()
+
+            # Trigger automatic AI analysis (non-blocking, optional)
+            try:
+                parent = self.window()
+                if hasattr(parent, 'analyze_with_llm'):
+                    # Schedule analysis to run after UI updates (non-blocking)
+                    QTimer.singleShot(100, parent.analyze_with_llm)
+            except Exception as e:
+                # Silently ignore errors - analysis is optional
+                pass
 
     def update_display(self):
         """Renders the image with the semi-transparent red mask overlay and UI guides."""
@@ -148,6 +178,28 @@ class MaskableImageLabel(QLabel):
         if self.scale_line:
             painter.setPen(QPen(QColor(255, 255, 0), 2, Qt.SolidLine))
             painter.drawLine(self.scale_line[0], self.scale_line[1])
+
+        # Draw warning icon if quality warnings exist
+        if self.quality_warnings:
+            icon_size = 32
+            x_pos = w - icon_size - 5
+            y_pos = 5
+
+            # Draw warning triangle background
+            painter.setBrush(QColor(255, 152, 0))
+            painter.setPen(QPen(QColor(255, 255, 255), 2))
+            points = [
+                QPoint(x_pos + icon_size // 2, y_pos),
+                QPoint(x_pos, y_pos + icon_size),
+                QPoint(x_pos + icon_size, y_pos + icon_size)
+            ]
+            painter.drawPolygon(points)
+
+            # Draw exclamation mark
+            painter.setPen(QPen(QColor(255, 255, 255), 3, Qt.SolidLine))
+            painter.drawLine(x_pos + icon_size // 2, y_pos + 8, x_pos + icon_size // 2, y_pos + 18)
+            painter.drawPoint(x_pos + icon_size // 2, y_pos + 22)
+
         painter.end()
         self.setPixmap(display)
 
@@ -271,6 +323,8 @@ def show_mesh_process(mesh):
 
 class Image23DPrintGUI(QMainWindow):
     """Main application window for Image23DPrint."""
+    _ollama_client = None
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Image23DPrint - Space Carving")
@@ -317,6 +371,8 @@ class Image23DPrintGUI(QMainWindow):
         cl.addLayout(bl)
         self.btn_ai = QPushButton("AI Auto-Mask")
         self.btn_ai.clicked.connect(self.ai_mask_all)
+        self.btn_analyze = QPushButton("Analyze with AI")
+        self.btn_analyze.clicked.connect(self.analyze_with_llm)
         self.btn_edge = QPushButton("Edge Mask")
         self.btn_edge.setToolTip("Use Canny Edge Detection for high-contrast objects")
         self.btn_edge.clicked.connect(self.edge_mask_all)
@@ -338,7 +394,7 @@ class Image23DPrintGUI(QMainWindow):
         self.btn_pre = QPushButton("Preview 3D")
         self.btn_pre.clicked.connect(self.preview_3d)
         self.btn_pre.setVisible(False)
-        for b in [self.btn_ai, self.btn_edge, self.btn_smart, self.btn_refine, self.btn_scale, self.btn_undo, self.btn_clr, self.btn_gen, self.btn_2d3d, self.btn_pre]:
+        for b in [self.btn_ai, self.btn_analyze, self.btn_edge, self.btn_smart, self.btn_refine, self.btn_scale, self.btn_undo, self.btn_clr, self.btn_gen, self.btn_2d3d, self.btn_pre]:
             bl.addWidget(b)
         gl = QHBoxLayout()
         cl.addLayout(gl)
@@ -349,6 +405,15 @@ class Image23DPrintGUI(QMainWindow):
         self.radio_keep.toggled.connect(self.update_brush_mode)
         gl.addWidget(self.radio_remove)
         gl.addWidget(self.radio_keep)
+
+        ag = QGroupBox("AI Analysis")
+        al = QVBoxLayout(ag)
+        ml.addWidget(ag)
+        self.llm_feedback_label = QLabel("No analysis yet.")
+        self.llm_feedback_label.setWordWrap(True)
+        self.llm_feedback_label.setStyleSheet("padding: 10px; background-color: #f5f5f5;")
+        al.addWidget(self.llm_feedback_label)
+
         self.st = QLabel("Load Images -> AI Mask -> Generate")
         ml.addWidget(self.st)
         self.update_brush_mode()
@@ -409,6 +474,65 @@ class Image23DPrintGUI(QMainWindow):
         for v in [self.view_front, self.view_side, self.view_top]:
             v.brush_mode = m
         self.st.setText(f"Active Brush: {'KEEP (No Red)' if m==0 else 'REMOVE (Red)'}")
+
+    def analyze_with_llm(self):
+        """Analyzes loaded images using Ollama LLM vision and displays feedback."""
+        if Image23DPrintGUI._ollama_client is None:
+            try:
+                from .ollama_vision import OllamaClient
+                Image23DPrintGUI._ollama_client = OllamaClient()
+            except Exception as e:
+                self.llm_feedback_label.setText(f"Error loading Ollama client: {e}")
+                return
+
+        client = Image23DPrintGUI._ollama_client
+        if not client.is_available():
+            self.llm_feedback_label.setText("Ollama not available. Install from ollama.ai and run 'ollama pull llava'")
+            return
+
+        self.llm_feedback_label.setText("Analyzing images...")
+
+        views = [
+            (self.view_front, "Front"),
+            (self.view_side, "Side"),
+            (self.view_top, "Top")
+        ]
+
+        results = []
+        import tempfile
+        for view, name in views:
+            if view.image is None:
+                continue
+
+            temp_path = os.path.join(tempfile.gettempdir(), f"image23dprint_{name.lower()}.png")
+            try:
+                view.image.save(temp_path)
+                analysis = client.analyze_image(temp_path)
+
+                if "error" not in analysis:
+                    orientation = analysis.get("orientation", "unknown")
+                    confidence = analysis.get("confidence", 0.0)
+                    suggestions = analysis.get("suggestions", "")
+                    warnings = analysis.get("quality_warnings", [])
+
+                    # Update visual indicators on the view
+                    view.set_quality_warnings(warnings)
+
+                    result_text = f"**{name}**: {suggestions}"
+                    if warnings:
+                        result_text += f"\n  Warnings: {', '.join(warnings)}"
+                    results.append(result_text)
+                else:
+                    view.set_quality_warnings([])
+                    results.append(f"**{name}**: {analysis.get('suggestions', 'Analysis failed')}")
+            except Exception as e:
+                view.set_quality_warnings([])
+                results.append(f"**{name}**: Error - {str(e)}")
+
+        if results:
+            self.llm_feedback_label.setText("\n\n".join(results))
+        else:
+            self.llm_feedback_label.setText("No images loaded. Load images first.")
 
     def ai_mask_all(self):
         """Triggers AI background removal for all three image views."""

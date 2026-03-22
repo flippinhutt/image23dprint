@@ -9,6 +9,7 @@ Designed for hobbyists, engineers, and creators, it allows you to generate a 3D 
 ## ✨ Key Features
 
 - 🧠 **AI-Powered Masking**: Utilizes `rembg` (ISNet) to automatically isolate objects from complex backgrounds.
+- 🤖 **Local LLM Vision Analysis**: Optional Ollama integration provides intelligent photo analysis, orientation detection, and quality warnings—all running locally for complete privacy.
 - 📐 **Precision Scaling**: Built-in calibration tool to set real-world dimensions (mm) from a simple reference line.
 - 🖼️ **2D-to-Thin-3D**: Instantly generate a constant-thickness 3D layer from a single image (perfect for signs and lithophanes).
 - 🖥️ **Interactive Refinement**: Manual brush tools, "Edge Mask" (Canny), "Smart Outline" (GrabCut), and morphological refinement to perfect your masks.
@@ -43,6 +44,49 @@ PYTHONPATH=src uv run python -m image23dprint
 3. **Calibrate**: Use the **Scale Tool** to draw a line on an object (e.g., its height) and input the real-world mm.
 4. **Generate**: Set your desired resolution (32-256) and click **Generate STL**.
 5. **Export**: Preview the 3D model and click **Export** to save your print-ready file.
+
+---
+
+## 🤖 Ollama Integration
+
+**Image23DPrint** supports optional AI-powered photo analysis via [Ollama](https://ollama.ai), a local LLM runtime. When enabled, the app provides intelligent feedback on your photos before you start carving—helping you catch quality issues early and optimize your results.
+
+### ✨ Features
+- 🎯 **Automatic Orientation Detection**: Identifies if your photo is a front, side, or top view with confidence scoring
+- ⚠️ **Quality Warnings**: Detects common issues like blur, reflections, low contrast, and transparency
+- 💬 **Natural Language Guidance**: Provides conversational suggestions for improving your photos
+- 🔒 **100% Local Processing**: All analysis runs on your machine—no data ever leaves your computer
+
+### 📦 Setup (Optional)
+
+Ollama integration is **completely optional**. The app works perfectly without it—this feature simply adds intelligent assistance when available.
+
+1. **Install Ollama**
+   Download and install from [ollama.ai](https://ollama.ai)
+
+2. **Pull the Vision Model**
+   ```bash
+   ollama pull llava
+   ```
+
+3. **Start Ollama** (if not auto-started)
+   ```bash
+   ollama serve
+   ```
+
+4. **Launch Image23DPrint**
+   The app will automatically detect Ollama and enable AI analysis features.
+
+### 🚦 How It Works
+
+- When you load an image, the app automatically analyzes it (if Ollama is running)
+- Results appear in the **AI Analysis** panel with orientation suggestions and quality warnings
+- If issues are detected (blur, reflections), the affected image gets a visual warning border
+- Click **Analyze with AI** to manually re-run analysis on your loaded images
+
+### 🛡️ Privacy & Offline Use
+
+Unlike cloud-based AI tools, **all Ollama processing happens locally**. Your photos and designs never leave your machine, making this perfect for proprietary or sensitive projects.
 
 ---
 
@@ -83,7 +127,7 @@ graph TD
 ## 🗺️ Roadmap / TODO
 
 We are actively developing and looking for contributors!
-- [ ] **Ollama Support**: Integrate local LLM vision for scene analysis and prompt-based mesh generation.
+- [x] **Ollama Support**: Integrate local LLM vision for scene analysis and intelligent photo feedback.
 - [ ] **Extended AI Support**: Support for additional vision models (Segment Anything, etc.).
 - [ ] **Improved Image Recognition**: Enhanced edge detection for fine-grained object features.
 - [x] **2D-to-Thin-3D**: Allow generating a 3D layer with adjustable thickness from a single 2D image.

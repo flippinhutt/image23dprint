@@ -1,0 +1,39 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(./**)",
+      "Write(./**)",
+      "Edit(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Read(/Users/ryanhutto/projects/image23dprint/.auto-claude/worktrees/tasks/003-ollama-llm-vision-integration/**)",
+      "Write(/Users/ryanhutto/projects/image23dprint/.auto-claude/worktrees/tasks/003-ollama-llm-vision-integration/**)",
+      "Edit(/Users/ryanhutto/projects/image23dprint/.auto-claude/worktrees/tasks/003-ollama-llm-vision-integration/**)",
+      "Glob(/Users/ryanhutto/projects/image23dprint/.auto-claude/worktrees/tasks/003-ollama-llm-vision-integration/**)",
+      "Grep(/Users/ryanhutto/projects/image23dprint/.auto-claude/worktrees/tasks/003-ollama-llm-vision-integration/**)",
+      "Read(/Users/ryanhutto/projects/image23dprint/.auto-claude/worktrees/tasks/003-ollama-llm-vision-integration/.auto-claude/specs/003-ollama-llm-vision-integration/**)",
+      "Write(/Users/ryanhutto/projects/image23dprint/.auto-claude/worktrees/tasks/003-ollama-llm-vision-integration/.auto-claude/specs/003-ollama-llm-vision-integration/**)",
+      "Edit(/Users/ryanhutto/projects/image23dprint/.auto-claude/worktrees/tasks/003-ollama-llm-vision-integration/.auto-claude/specs/003-ollama-llm-vision-integration/**)",
+      "Read(/Users/ryanhutto/projects/image23dprint/.auto-claude/**)",
+      "Write(/Users/ryanhutto/projects/image23dprint/.auto-claude/**)",
+      "Edit(/Users/ryanhutto/projects/image23dprint/.auto-claude/**)",
+      "Glob(/Users/ryanhutto/projects/image23dprint/.auto-claude/**)",
+      "Grep(/Users/ryanhutto/projects/image23dprint/.auto-claude/**)",
+      "Bash(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__query-docs(*)",
+      "mcp__graphiti-memory__search_nodes(*)",
+      "mcp__graphiti-memory__search_facts(*)",
+      "mcp__graphiti-memory__add_episode(*)",
+      "mcp__graphiti-memory__get_episodes(*)",
+      "mcp__graphiti-memory__get_entity_edge(*)"
+    ]
+  }
+}
