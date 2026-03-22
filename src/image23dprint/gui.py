@@ -34,6 +34,7 @@ class MaskableImageLabel(QLabel):
         self.scale_line = None
         self.rect_start = self.rect_end = None
         self.history = []
+        self.quality_warnings = []
 
     def save_state(self):
         """Save current mask state to the undo history stack."""
@@ -47,6 +48,23 @@ class MaskableImageLabel(QLabel):
         if self.history:
             self.mask = self.history.pop()
             self.update_display()
+
+    def set_quality_warnings(self, warnings):
+        """Set quality warnings and update visual indicators."""
+        self.quality_warnings = warnings if warnings else []
+        self.update_border_style()
+
+    def update_border_style(self):
+        """Update the border style based on quality warnings."""
+        if self.quality_warnings:
+            self.setStyleSheet("border: 3px solid #ff9800; background-color: #fff3e0;")
+            self.setToolTip(f"⚠️ Quality Issues:\n" + "\n".join(f"• {w}" for w in self.quality_warnings))
+        elif self.image:
+            self.setStyleSheet("border: 2px solid #4caf50;")
+            self.setToolTip("")
+        else:
+            self.setStyleSheet("border: 2px dashed #aaa;")
+            self.setToolTip("")
     def _map_to_image(self, pos):
         """Maps a mouse position on the QLabel to its corresponding pixel in the underlying image."""
         if self.image is None:
@@ -122,6 +140,8 @@ class MaskableImageLabel(QLabel):
             self.image = pix.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.mask = QImage(self.image.size(), QImage.Format_Mono)
             self.mask.fill(Qt.color1)
+            self.quality_warnings = []
+            self.update_border_style()
             self.update_display()
 
             # Trigger automatic AI analysis (non-blocking, optional)
@@ -158,6 +178,28 @@ class MaskableImageLabel(QLabel):
         if self.scale_line:
             painter.setPen(QPen(QColor(255, 255, 0), 2, Qt.SolidLine))
             painter.drawLine(self.scale_line[0], self.scale_line[1])
+
+        # Draw warning icon if quality warnings exist
+        if self.quality_warnings:
+            icon_size = 32
+            x_pos = w - icon_size - 5
+            y_pos = 5
+
+            # Draw warning triangle background
+            painter.setBrush(QColor(255, 152, 0))
+            painter.setPen(QPen(QColor(255, 255, 255), 2))
+            points = [
+                QPoint(x_pos + icon_size // 2, y_pos),
+                QPoint(x_pos, y_pos + icon_size),
+                QPoint(x_pos + icon_size, y_pos + icon_size)
+            ]
+            painter.drawPolygon(points)
+
+            # Draw exclamation mark
+            painter.setPen(QPen(QColor(255, 255, 255), 3, Qt.SolidLine))
+            painter.drawLine(x_pos + icon_size // 2, y_pos + 8, x_pos + icon_size // 2, y_pos + 18)
+            painter.drawPoint(x_pos + icon_size // 2, y_pos + 22)
+
         painter.end()
         self.setPixmap(display)
 
@@ -473,13 +515,18 @@ class Image23DPrintGUI(QMainWindow):
                     suggestions = analysis.get("suggestions", "")
                     warnings = analysis.get("quality_warnings", [])
 
+                    # Update visual indicators on the view
+                    view.set_quality_warnings(warnings)
+
                     result_text = f"**{name}**: {suggestions}"
                     if warnings:
                         result_text += f"\n  Warnings: {', '.join(warnings)}"
                     results.append(result_text)
                 else:
+                    view.set_quality_warnings([])
                     results.append(f"**{name}**: {analysis.get('suggestions', 'Analysis failed')}")
             except Exception as e:
+                view.set_quality_warnings([])
                 results.append(f"**{name}**: Error - {str(e)}")
 
         if results:
